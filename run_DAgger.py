@@ -3,6 +3,7 @@ import pandas as pd
 import torch  # pytorch
 import torch.nn as nn
 import argparse
+from tqdm import tqdm
 
 # Checking available device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -110,7 +111,7 @@ def DAgger(training_X, pred_Y, original_X, original_Y):
 
     # Search the most similar history and get new Y
     new_Y = torch.zeros(new_X.shape[0], device=device)
-    for new_X_item_idx in range(new_X.shape[0]):  # for each new X item
+    for new_X_item_idx in tqdm(range(new_X.shape[0])):  # for each new X item
         best_fit_idx = None
         best_fit_diff = 2  # the theoretically possible maximum diff
         for original_X_item_idx in range(original_X.shape[0]):  # from all original X dataset
@@ -176,5 +177,8 @@ print("consumed time:", cur_time - prev_time, 's')
 
 # DAgger result comparison
 print()
-print("sum of difference of new Ys made by standard and heuristic DAgger:",
-      torch.sum(torch.abs(new_Y_training_standard - new_Y_training_heuristic)))
+print("element-wise average of differences between new Ys made by standard and heuristic DAgger:",
+      torch.sum(torch.abs(new_Y_training_standard - new_Y_training_heuristic))/new_Y_training_standard.shape[0],
+      "over", 2)
+
+
