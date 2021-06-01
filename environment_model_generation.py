@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import torch  # pytorch
-from torch.utils.data import Dataset
+
 from torch.utils.data import DataLoader
 import argparse
 
@@ -9,21 +9,31 @@ import glob
 import os
 import datetime
 import random
+
+from behaviorCloningTrainer import BehaviorCloningTrainer
 from LineTracerEnvironmentModelGRU import LineTracerEnvironmentModelGRU
-from BehaviorCloningTrainer import BehaviorCloningTrainer
+from LineTracerVer1 import LineTracerVer1
 
 
 # Argument parsing
+from fieldTestDataset import FieldTestDataset
+
 parser = argparse.ArgumentParser()
 parser.add_argument("-f", "--source_file", type=str, nargs='+',
                     help="<Mandatory (or -d)> field test data source files (list seperated by spaces)", default=["data/ver1_fixed_interval/ver1_ft_60_30.csv", "data/ver1_fixed_interval/ver1_ft_60_20.csv"])
 parser.add_argument("-d", "--source_directory", type=str,
                     help="<Mandatory (or -f)> filed test data directory (It will read only *.csv files.)", default=None)
-possible_mode = ["bc_1tick_noDagger"]
+possible_mode = ["bc_1tick_noDagger", "bc_1tick_Dagger"]
 parser.add_argument("-m", "--mode", type=str,
-                    help="model generation algorithm among "+str(possible_mode)+" (default: bc_1tick_noDagger)", default='bc_1tick_noDagger')
+                    help="model generation algorithm among "+str(possible_mode)+" (default: bc_1tick_noDagger)", default='bc_1tick_Dagger')
 parser.add_argument("-l", "--history_length", type=int,
                     help="history length (default: 100)", default=100)
+parser.add_argument("-b", "--batch_size", type=int,
+                    help="mini batch size (default: 128)", default=10000)
+parser.add_argument("-md", "--max_dagger", type=int,
+                    help="maximum number of dagger", default=50)
+parser.add_argument("-dt", "--dagger_threshold", type=float,
+                    help="dagger operation flag threshold", default=0.02)
 
 args = parser.parse_args()
 
@@ -42,6 +52,8 @@ def mode_selection(args):
 
     if args.mode == "bc_1tick_noDagger":
         mode = 0
+    elif args.mode == "bc_1tick_Dagger":
+        mode = 1
 
     return mode
 
@@ -50,7 +62,13 @@ mode = mode_selection(args)
 source_files = args.source_file
 source_directory = args.source_directory
 history_length = args.history_length
-
+batch_size = args.batch_size
+if mode == 1:
+    dagger_on = True
+else:
+    dagger_on = False
+max_dagger = args.max_dagger
+dagger_threshold = args.dagger_threshold
 
 
 # Input specification
@@ -58,9 +76,13 @@ print("Environment model generation (start at", datetime.datetime.now(), ")")
 print("=====Input specification=====")
 print("Available device:", device)
 print("Source data:", source_files)
+print("History length:", history_length)
 if mode == 0:
     print("Environment model generation algorithm: 1-tick Behavior Cloning without DAgger")
-    print("History length:", history_length)
+elif mode == 1:
+    print("Environment model generation algorithm: 1-tick Behavior Cloning with DAgger")
+    print("Maximum number of DAgger execution:", max_dagger)
+    print("DAgger execution thresthold (prediction threshold):", dagger_threshold)
 print("=====(end)=====")
 print()
 
@@ -106,17 +128,7 @@ def build_nparray_dataset(nparray, seq_length):
         Y_data.append(y)
     return np.array(X_data), np.array(Y_data)
 
-class FieldTestDataset(Dataset):
-    def __init__(self, x_tensor, y_tensor):
-        super(FieldTestDataset, self).__init__()
-        self.x = x_tensor
-        self.y = y_tensor
 
-    def __getitem__(self, index):
-        return self.x[index], self.y[index]
-
-    def __len__(self):
-        return self.x.shape[0]
 
 
 train_dataloaders = []
@@ -133,19 +145,19 @@ for normalized_data in noramlized_nparrays:
     train_dataloaders.append(DataLoader(dataset=FieldTestDataset(
         torch.from_numpy(x_data[split_idx[train_loc]:split_idx[train_loc+1]]).type(torch.Tensor).to(device=device),
         torch.from_numpy(y_data[split_idx[train_loc]:split_idx[train_loc+1]]).type(torch.Tensor).to(device=device)),
-        batch_size=128, shuffle=False))
+        batch_size=batch_size, shuffle=False))
 
     test_loc = split_loc.index(2)
     test_dataloaders.append(DataLoader(dataset=FieldTestDataset(
         torch.from_numpy(x_data[split_idx[test_loc]:split_idx[test_loc + 1]]).type(torch.Tensor).to(device=device),
         torch.from_numpy(y_data[split_idx[test_loc]:split_idx[test_loc + 1]]).type(torch.Tensor).to(device=device)),
-        batch_size=128, shuffle=False))
+        batch_size=batch_size, shuffle=False))
 
     val_loc = split_loc.index(1)
     validation_dataloaders.append(DataLoader(dataset=FieldTestDataset(
         torch.from_numpy(x_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device),
         torch.from_numpy(y_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device)),
-        batch_size=128, shuffle=False))
+        batch_size=batch_size, shuffle=False))
 
 print("--train dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in train_dataloaders])
 print("--test dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in test_dataloaders])
@@ -161,11 +173,20 @@ model = LineTracerEnvironmentModelGRU(input_dim=input_dim, hidden_dim=hidden_dim
 model.to(device=device)
 print("--environment model summary:", model)
 
+print("Step 5: Build system under test")
+# instantiate a moddel
+line_tracer = LineTracerVer1(mm)
+
 print("Step 5: Train environment model")
 # train the environment model
-trainer = BehaviorCloningTrainer()
-training_loss = trainer.train(model=model, epochs=30, train_dataloaders=train_dataloaders, test_dataloaders=test_dataloaders)
+if mode == 0 or mode == 1:
+    trainer = BehaviorCloningTrainer(device=device, sut=line_tracer)
+    training_loss, dagger_count = trainer.train(model=model, epochs=30, train_dataloaders=train_dataloaders, dagger=dagger_on,
+                                  test_dataloaders=test_dataloaders, max_dagger=max_dagger,
+                                  dagger_threshold=dagger_threshold, dagger_batch_size=batch_size)
 print("--training loss:", training_loss)
+print("--dagger count:", dagger_count)
+
 
 
 print("=====(end)=====")
