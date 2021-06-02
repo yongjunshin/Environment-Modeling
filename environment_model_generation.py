@@ -29,11 +29,13 @@ parser.add_argument("-m", "--mode", type=str,
 parser.add_argument("-l", "--history_length", type=int,
                     help="history length (default: 100)", default=100)
 parser.add_argument("-b", "--batch_size", type=int,
-                    help="mini batch size (default: 128)", default=10000)
+                    help="mini batch size (default: 128)", default=100)
 parser.add_argument("-md", "--max_dagger", type=int,
-                    help="maximum number of dagger", default=50)
+                    help="maximum number of dagger", default=10)
 parser.add_argument("-dt", "--dagger_threshold", type=float,
                     help="dagger operation flag threshold", default=0.02)
+parser.add_argument("-dm", "--distance_metric", type=str,
+                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: wmd)", default='wmd')
 
 args = parser.parse_args()
 
@@ -69,6 +71,7 @@ else:
     dagger_on = False
 max_dagger = args.max_dagger
 dagger_threshold = args.dagger_threshold
+distance_metric = args.distance_metric
 
 
 # Input specification
@@ -83,6 +86,7 @@ elif mode == 1:
     print("Environment model generation algorithm: 1-tick Behavior Cloning with DAgger")
     print("Maximum number of DAgger execution:", max_dagger)
     print("DAgger execution thresthold (prediction threshold):", dagger_threshold)
+    print("History distance metric:", distance_metric)
 print("=====(end)=====")
 print()
 
@@ -181,9 +185,10 @@ print("Step 5: Train environment model")
 # train the environment model
 if mode == 0 or mode == 1:
     trainer = BehaviorCloningTrainer(device=device, sut=line_tracer)
-    training_loss, dagger_count = trainer.train(model=model, epochs=30, train_dataloaders=train_dataloaders, dagger=dagger_on,
-                                  test_dataloaders=test_dataloaders, max_dagger=max_dagger,
-                                  dagger_threshold=dagger_threshold, dagger_batch_size=batch_size)
+    training_loss, dagger_count = trainer.train(model=model, epochs=30, train_dataloaders=train_dataloaders,
+                                                test_dataloaders=test_dataloaders, dagger=dagger_on,
+                                                max_dagger=max_dagger, dagger_threshold=dagger_threshold,
+                                                dagger_batch_size=batch_size, distance_metric=distance_metric)
 print("--training loss:", training_loss)
 print("--dagger count:", dagger_count)
 
