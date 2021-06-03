@@ -45,11 +45,11 @@ class BehaviorCloningTrainer:
                         new_xs.append(new_x)
                         new_ys.append(new_y)
 
-                        plt.figure(figsize=(10, 5))
-                        plt.plot(x[1, :, [0]].cpu(), label="Original X")
-                        plt.plot(new_x[0, :, [0]].cpu(), label="DAgger new X")
-                        plt.legend()
-                        plt.show()
+                        # plt.figure(figsize=(10, 5))
+                        # plt.plot(x[1, :, [0]].cpu(), label="Original X")
+                        # plt.plot(new_x[0, :, [0]].cpu(), label="DAgger new X")
+                        # plt.legend()
+                        # plt.show()
 
                 if len(new_xs) > 0:
                     new_x_tensor = torch.cat(new_xs, dim=0)
@@ -90,7 +90,6 @@ class BehaviorCloningTrainer:
             for dataloader in train_dataloaders:
                 for batch_idx, (x, y) in enumerate(dataloader):
                     cur_diffs = self.input_distances(new_x[new_x_item_idx_i], x, distance_metric, weights, weights_sum)
-                    #cur_diffs = torch.Tensor(cur_diffs)
                     np_cur_diffs = cur_diffs.cpu().numpy()
                     min_idx = np.argmin(np_cur_diffs)
                     cur_best_fit_diff = cur_diffs[min_idx]
@@ -103,39 +102,6 @@ class BehaviorCloningTrainer:
         new_y = torch.reshape(new_y, (new_y.shape[0], 1))
 
         return new_x, new_y
-
-    def input_distance(self, reference, target, method="wmd", weights=None, weights_sum=None):
-        if method == "ed":
-            # euclidean distance
-            diff = torch.sum(torch.pow(reference - target, 2))
-            diff = torch.sqrt(diff)
-            #print(diff)
-            return diff
-        elif method == "wed" and weights is not None and weights_sum is not None:
-            # weighted euclidean distance
-            diff = torch.sum(torch.pow(reference - target, 2) * weights) / weights_sum
-            diff = torch.sqrt(diff)
-            #print(diff)
-            return diff
-        elif method == "md":
-            # manhattan distance
-            diff = torch.abs(reference - target)
-            diff = torch.sum(diff)
-            #print(diff)
-            return diff
-        elif method == "wmd" and weights is not None and weights_sum is not None:
-            # weighted manhattan distance
-            weighted_diff = torch.abs(reference - target) * weights
-            diff = torch.sum(weighted_diff) / weights_sum
-            #print(diff)
-            return diff
-        elif method == "dtw":
-            #diff, path = fastdtw(reference.cpu().detach().numpy(), target.cpu().detach().numpy(), dist=euclidean)
-            diff = self.sdtw(torch.reshape(reference, (1, reference.shape[0], reference.shape[1])), torch.reshape(target, (1, target.shape[0], target.shape[1])))
-            return diff
-        else:
-            print("[Error] Wrong history distance metric and parameters.")
-            quit()
 
     def input_distances(self, new_x_data, reference_dataset, method, weights, weights_sum):
         if method == "ed":
