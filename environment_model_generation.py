@@ -1,22 +1,13 @@
-import numpy as np
-import pandas as pd
-import torch  # pytorch
-
-from torch.utils.data import DataLoader
 import argparse
-
 import glob
 import os
 import datetime
-import random
 
-from behaviorCloningTrainer import BehaviorCloningTrainer
+from BehaviorCloning1TickFutureTrainer import BehaviorCloning1TickFutureTrainer
 from LineTracerEnvironmentModelGRU import LineTracerEnvironmentModelGRU
 from LineTracerVer1 import LineTracerVer1
+from DatasetBuilder import *
 
-
-# Argument parsing
-from fieldTestDataset import FieldTestDataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-f", "--source_file", type=str, nargs='+',
@@ -39,7 +30,11 @@ parser.add_argument("-dt", "--dagger_threshold", type=float,
 parser.add_argument("-dm", "--distance_metric", type=str,
                     help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: wmd)", default='wmd')
 parser.add_argument("-el", "--episode_length", type=int,
-                    help="episode length (defaualt: same with history length", default=None)
+                    help="episode length (default: same with history length)", default=None)
+parser.add_argument("-ms", "--manual_seed", type=int,
+                    help="manual seed (default: random seed)", default=None)
+parser.add_argument("-er", "--experiment_repeat", type=int,
+                    help="experiment repeat (default: 1)", default=1)
 
 args = parser.parse_args()
 
@@ -84,7 +79,16 @@ if mode == 2:
         episode_length = history_length
     else:
         episode_length = args.episode_length
-
+manual_seed = args.manual_seed
+if manual_seed is not None:
+    torch.manual_seed(manual_seed)
+    torch.cuda.manual_seed(manual_seed)
+    torch.cuda.manual_seed_all(manual_seed)  # if use multi-GPU
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(manual_seed)
+    random.seed(manual_seed)
+experiment_repeat = args.experiment_repeat
 
 # Input specification
 print("Environment model generation (start at", datetime.datetime.now(), ")")
@@ -103,119 +107,64 @@ elif mode == 1:
 elif mode == 2:
     print("Environment model generation algorithm: Episode Behavior Cloning")
     print("Episode length:", episode_length)
+
+if manual_seed is not None:
+    print("Randomness: no, seed", manual_seed)
+else:
+    print("Randomness: yes")
+print("Experiment repeat:", experiment_repeat)
 print("=====(end)=====")
 print()
 
-print("=====Environment model generation process=====")
-print("Step 1: Source data reading")
-# Source data reading
-if source_directory is not None:
-    source_files = glob.glob(os.path.join(source_directory, "*.csv"))
 
-raw_dfs = []
-for file in source_files:
-    raw_dfs.append(pd.read_csv(file, index_col='time'))
-print("--data size:", [raw_df.shape for raw_df in raw_dfs])
+for e in range(experiment_repeat):
+    print("====={0}th environment model generation process=====".format(e))
+    print("Step 1: Source data reading")
+    # Source data reading
+    if source_directory is not None:
+        source_files = glob.glob(os.path.join(source_directory, "*.csv"))
 
-print("Step 2: Data normalization")
-# Merge files
-data_shape_list_for_each_file = [raw_df.shape for raw_df in raw_dfs]
-raw_concat_df = pd.concat(raw_dfs)
+    raw_dfs = []
+    for file in source_files:
+        raw_dfs.append(pd.read_csv(file, index_col='time')[:300])
+    print("--data size:", [raw_df.shape for raw_df in raw_dfs])
 
-# Normalize data
-from sklearn.preprocessing import MinMaxScaler
-mm = MinMaxScaler(feature_range=(-1,1))
-normalized_concat_nparray = mm.fit_transform(raw_concat_df)
+    print("Step 2: Data normalization")
+    noramlized_nparrays, scaler = normalize_dataframes_to_nparrays(raw_dfs)
 
-# Split files
-noramlized_nparrays = []
-prev_index = 0
-for shape in data_shape_list_for_each_file:
-    noramlized_nparrays.append(normalized_concat_nparray[prev_index : prev_index + shape[0], :])
-    prev_index = prev_index + shape[0]
+    print("Step 3: Build train/test/validation dataset")
+    # Build train/test/validation dataset
+    train_dataloaders, test_dataloaders, validation_dataloaders = build_train_test_validation_dataset(noramlized_nparrays, mode, history_length, None, batch_size, device)
 
-print("Step 3: Build train/test/validation dataset")
-# Build train/test/validation dataset
-def build_nparray_dataset_1tick(nparray, history_length):
-    X_data = []
-    Y_data = []
+    print("--train dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in train_dataloaders])
+    print("--test dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in test_dataloaders])
+    print("--validation dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in validation_dataloaders])
 
-    for i in range(0, nparray.shape[0] - history_length):
-        x = nparray[i: i + history_length, :]
-        y = nparray[i + history_length, [0]]
+    print("Step 4: Build environment model")
+    # instantiate a moddel
+    input_dim = 2
+    hidden_dim = 16
+    num_layers = 2
+    output_dim = 1
+    model = LineTracerEnvironmentModelGRU(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, num_layers=num_layers, device=device)
+    model.to(device=device)
+    print("--environment model summary:", model)
 
-        X_data.append(x)
-        Y_data.append(y)
-    return np.array(X_data), np.array(Y_data)
+    print("Step 5: Build system under test")
+    # instantiate a moddel
+    line_tracer = LineTracerVer1(scaler)
 
-def build_nparray_dataset_episode(nparray, history_length, episode_length):
-    X_data = []
-    Y_data = []
-    # todo
-
-    return np.array(X_data), np.array(Y_data)
-
-train_dataloaders = []
-test_dataloaders = []
-validation_dataloaders = []
-for normalized_data in noramlized_nparrays:
+    print("Step 5: Train environment model")
+    # train the environment model
     if mode == 0 or mode == 1:
-        x_data, y_data = build_nparray_dataset_1tick(normalized_data, history_length)
-    elif mode == 2:
-        x_data, y_data = build_nparray_dataset_episode(normalized_data, history_length, episode_length)
-
-    len = x_data.shape[0]
-    split_loc = [7, 2, 1]
-    random.shuffle(split_loc)
-    split_idx = [0, int(split_loc[0] * len/10), int((split_loc[0] + split_loc[1]) * len/10), len]
-
-    train_loc = split_loc.index(7)
-    train_dataloaders.append(DataLoader(dataset=FieldTestDataset(
-        torch.from_numpy(x_data[split_idx[train_loc]:split_idx[train_loc+1]]).type(torch.Tensor).to(device=device),
-        torch.from_numpy(y_data[split_idx[train_loc]:split_idx[train_loc+1]]).type(torch.Tensor).to(device=device)),
-        batch_size=batch_size, shuffle=False))
-
-    test_loc = split_loc.index(2)
-    test_dataloaders.append(DataLoader(dataset=FieldTestDataset(
-        torch.from_numpy(x_data[split_idx[test_loc]:split_idx[test_loc + 1]]).type(torch.Tensor).to(device=device),
-        torch.from_numpy(y_data[split_idx[test_loc]:split_idx[test_loc + 1]]).type(torch.Tensor).to(device=device)),
-        batch_size=batch_size, shuffle=False))
-
-    val_loc = split_loc.index(1)
-    validation_dataloaders.append(DataLoader(dataset=FieldTestDataset(
-        torch.from_numpy(x_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device),
-        torch.from_numpy(y_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device)),
-        batch_size=batch_size, shuffle=False))
-
-print("--train dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in train_dataloaders])
-print("--test dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in test_dataloaders])
-print("--validation dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in validation_dataloaders])
-
-print("Step 4: Build environment model")
-# instantiate a moddel
-input_dim = 2
-hidden_dim = 16
-num_layers = 2
-output_dim = 1
-model = LineTracerEnvironmentModelGRU(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, num_layers=num_layers, device=device)
-model.to(device=device)
-print("--environment model summary:", model)
-
-print("Step 5: Build system under test")
-# instantiate a moddel
-line_tracer = LineTracerVer1(mm)
-
-print("Step 5: Train environment model")
-# train the environment model
-if mode == 0 or mode == 1:
-    trainer = BehaviorCloningTrainer(device=device, sut=line_tracer)
-    training_loss, dagger_count = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
-                                                test_dataloaders=test_dataloaders, dagger=dagger_on,
-                                                max_dagger=max_dagger, dagger_threshold=dagger_threshold,
-                                                dagger_batch_size=batch_size, distance_metric=distance_metric)
-print("--training loss:", training_loss)
-print("--dagger count:", dagger_count)
+        trainer = BehaviorCloning1TickFutureTrainer(device=device, sut=line_tracer)
+        training_loss, dagger_count = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
+                                                    test_dataloaders=test_dataloaders, dagger=dagger_on,
+                                                    max_dagger=max_dagger, dagger_threshold=dagger_threshold,
+                                                    dagger_batch_size=batch_size, distance_metric=distance_metric)
+    print("--training loss:", training_loss)
+    print("--dagger count:", dagger_count)
 
 
 
-print("=====(end)=====")
+    print("=====(end)=====")

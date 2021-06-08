@@ -8,7 +8,7 @@ from fieldTestDataset import FieldTestDataset
 from soft_dtw_cuda import SoftDTW
 
 
-class BehaviorCloningTrainer:
+class BehaviorCloning1TickFutureTrainer:
     def __init__(self, device, sut):
         self.device = device
         self.sut = sut
