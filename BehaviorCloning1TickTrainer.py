@@ -8,7 +8,7 @@ from fieldTestDataset import FieldTestDataset
 from soft_dtw_cuda import SoftDTW
 
 
-class BehaviorCloning1TickFutureTrainer:
+class BehaviorCloning1TickTrainer:
     def __init__(self, device, sut):
         self.device = device
         self.sut = sut
@@ -66,9 +66,10 @@ class BehaviorCloning1TickFutureTrainer:
     def dagger(self, train_dataloaders, x, y_pred, distance_metric="wmd"):
         env_prediction = y_pred.cpu().detach().numpy()
 
-        sys_operations = np.zeros(len(env_prediction))
-        for i in range(len(sys_operations)):
-            sys_operations[i] = self.sut.act(env_prediction[i])
+        # sys_operations = np.zeros(len(env_prediction))
+        # for i in range(len(sys_operations)):
+        #     sys_operations[i] = self.sut.act(env_prediction[i])
+        sys_operations = self.sut.act_sequential(env_prediction)
         sys_operations = torch.tensor([sys_operations]).to(device=self.device).type(torch.float32)
         sys_operations = torch.reshape(sys_operations, (sys_operations.shape[1], 1))
         env_prediction = torch.tensor(env_prediction).to(device=self.device)
@@ -107,29 +108,29 @@ class BehaviorCloning1TickFutureTrainer:
         if method == "ed":
             # euclidean distance
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))
-            diffs2 = torch.pow(reference_dataset - reshaped_new_dataset, 2)
-            diffs2 = torch.sum(diffs2, dim=(1, 2))
-            diffs2 = torch.sqrt(diffs2)
-            return diffs2
+            diffs = torch.pow(reference_dataset - reshaped_new_dataset, 2)
+            diffs = torch.sum(diffs, dim=(1, 2))
+            diffs = torch.sqrt(diffs)
+            return diffs
         elif method == "wed" and weights is not None and weights_sum is not None:
             # weighted euclidean distance
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))
-            diffs2 = torch.pow(reference_dataset - reshaped_new_dataset, 2) * weights
-            diffs2 = torch.sum(diffs2, dim=(1, 2)) / weights_sum
-            diffs2 = torch.sqrt(diffs2)
-            return diffs2
+            diffs = torch.pow(reference_dataset - reshaped_new_dataset, 2) * weights
+            diffs = torch.sum(diffs, dim=(1, 2)) / weights_sum
+            diffs = torch.sqrt(diffs)
+            return diffs
         elif method == "md":
             # manhattan distance
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))
-            diffs2 = torch.abs(reference_dataset - reshaped_new_dataset)
-            diffs2 = torch.sum(diffs2, dim=(1, 2))
-            return diffs2
+            diffs = torch.abs(reference_dataset - reshaped_new_dataset)
+            diffs = torch.sum(diffs, dim=(1, 2))
+            return diffs
         elif method == "wmd" and weights is not None and weights_sum is not None:
             # weighted manhattan distance
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))
-            diffs2 = torch.abs(reference_dataset - reshaped_new_dataset) * weights
-            diffs2 = torch.sum(diffs2, dim=(1, 2)) / weights_sum
-            return diffs2
+            diffs = torch.abs(reference_dataset - reshaped_new_dataset) * weights
+            diffs = torch.sum(diffs, dim=(1, 2)) / weights_sum
+            return diffs
         elif method == "dtw":
             #diff, path = fastdtw(reference.cpu().detach().numpy(), target.cpu().detach().numpy(), dist=euclidean)
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))

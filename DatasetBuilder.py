@@ -29,11 +29,9 @@ def normalize_dataframes_to_nparrays(raw_dfs):
 def build_nparray_dataset_1tick(nparray, history_length):
     X_data = []
     Y_data = []
-
     for i in range(0, nparray.shape[0] - history_length):
-        x = nparray[i: i + history_length, :]
-        y = nparray[i + history_length, [0]]
-
+        x = nparray[i:i+history_length, :]
+        y = nparray[i+history_length, [0]]
         X_data.append(x)
         Y_data.append(y)
     return np.array(X_data), np.array(Y_data)
@@ -42,8 +40,11 @@ def build_nparray_dataset_1tick(nparray, history_length):
 def build_nparray_dataset_episode(nparray, history_length, episode_length):
     X_data = []
     Y_data = []
-    # todo
-
+    for i in range(0, nparray.shape[0] - history_length - episode_length):
+        x = nparray[i:i+history_length, :]
+        y = nparray[i+history_length:i+history_length+episode_length, [0]]
+        X_data.append(x)
+        Y_data.append(y)
     return np.array(X_data), np.array(Y_data)
 
 
