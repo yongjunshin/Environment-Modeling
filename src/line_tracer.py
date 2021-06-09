@@ -1,12 +1,19 @@
 import numpy as np
 
+
 # Virtual Line Tracer version 1
 class LineTracerVer1:
     def __init__(self, normalizer):
         self.normalizer = normalizer
         None
 
-    def act(self, color):
+    def act(self, color: float) -> float:
+        """
+        System operation
+
+        :param color: normalized color value (float)
+        :return normalized turning ratio (float)
+        """
         black = 5
         white = 75
         threshold = (black + white) / 2
@@ -28,7 +35,13 @@ class LineTracerVer1:
         # print('normalized turning:', normalized_turning_ratio)
         return normalized_turning_ratio
 
-    def act_sequential(self, colors):
+    def act_sequential(self, colors: np.ndarray) -> np.ndarray:
+        """
+        System operation
+
+        :param colors: array of normalized color values (np.ndarray of float)
+        :return array of normalized turning ratios (np.ndarray of float)
+        """
         black = 5
         white = 75
         threshold = (black + white) / 2
