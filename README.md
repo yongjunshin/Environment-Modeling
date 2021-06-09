@@ -16,4 +16,5 @@ Environment Modeling for Cyber-Physical Systems-of-Systems
 ## Run
 
 1. (only once) activate venv: `source venv/bin/activate`
-1. python run_DAgger.py
+1. python environment_model_generation.py
+
