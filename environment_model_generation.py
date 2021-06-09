@@ -3,20 +3,22 @@ import glob
 import os
 import datetime
 
-from BehaviorCloning1TickFutureTrainer import BehaviorCloning1TickFutureTrainer
-from LineTracerEnvironmentModelGRU import LineTracerEnvironmentModelGRU
-from LineTracerVer1 import LineTracerVer1
-from DatasetBuilder import *
+from src.BehaviorCloning1TickTrainer import BehaviorCloning1TickTrainer
+from src.BehaviorCloningEpisodeTrainer import BehaviorCloningEpisodeTrainer
+from src.LineTracerEnvironmentModelGRU import LineTracerEnvironmentModelGRU
+from src.LineTracerVer1 import LineTracerVer1
+from src.DatasetBuilder import *
+import time
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-f", "--source_file", type=str, nargs='+',
-                    help="<Mandatory (or -d)> field test data source files (list seperated by spaces)", default=["data/ver1_fixed_interval/ver1_ft_60_30.csv", "data/ver1_fixed_interval/ver1_ft_60_20.csv"])
+                    help="<Mandatory (or -d)> field test data source files (list seperated by spaces)", default=["data/ver1_fixed_interval/ver1_ft_60_30.csv", "data/ver1_fixed_interval/ver1_ft_60_40.csv"])
 parser.add_argument("-d", "--source_directory", type=str,
                     help="<Mandatory (or -f)> filed test data directory (It will read only *.csv files.)", default=None)
 possible_mode = ["bc_1tick_noDagger", "bc_1tick_Dagger", "bc_episode"]
 parser.add_argument("-m", "--mode", type=str,
-                    help="model generation algorithm among "+str(possible_mode)+" (default: bc_1tick_noDagger)", default='bc_1tick_Dagger')
+                    help="model generation algorithm among "+str(possible_mode)+" (default: bc_1tick_noDagger)", default='bc_episode')
 parser.add_argument("-l", "--history_length", type=int,
                     help="history length (default: 100)", default=100)
 parser.add_argument("-e", "--epochs", type=int,
@@ -28,13 +30,15 @@ parser.add_argument("-md", "--max_dagger", type=int,
 parser.add_argument("-dt", "--dagger_threshold", type=float,
                     help="dagger operation flag threshold", default=0.02)
 parser.add_argument("-dm", "--distance_metric", type=str,
-                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: wmd)", default='wmd')
+                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: dtw)", default='dtw')
 parser.add_argument("-el", "--episode_length", type=int,
                     help="episode length (default: same with history length)", default=None)
 parser.add_argument("-ms", "--manual_seed", type=int,
                     help="manual seed (default: random seed)", default=None)
 parser.add_argument("-er", "--experiment_repeat", type=int,
                     help="experiment repeat (default: 1)", default=1)
+parser.add_argument("-els", "--episode_loss", type=str,
+                    help="episode loss function ['mse', 'mdtw'](default: mse)", default='mdtw')
 
 args = parser.parse_args()
 
@@ -79,16 +83,26 @@ if mode == 2:
         episode_length = history_length
     else:
         episode_length = args.episode_length
-manual_seed = args.manual_seed
-if manual_seed is not None:
-    torch.manual_seed(manual_seed)
-    torch.cuda.manual_seed(manual_seed)
-    torch.cuda.manual_seed_all(manual_seed)  # if use multi-GPU
+else:
+    episode_length = args.episode_length
+
+random_seed = args.manual_seed
+if random_seed == None:
+    random_seed = int(time.time())
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if use multi-GPU
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    np.random.seed(manual_seed)
-    random.seed(manual_seed)
+    np.random.seed(seed)
+    random.seed(seed)
+set_seed(random_seed)
+
+
 experiment_repeat = args.experiment_repeat
+episode_loss = args.episode_loss
 
 # Input specification
 print("Environment model generation (start at", datetime.datetime.now(), ")")
@@ -107,11 +121,11 @@ elif mode == 1:
 elif mode == 2:
     print("Environment model generation algorithm: Episode Behavior Cloning")
     print("Episode length:", episode_length)
+    print("Episode loss:", episode_loss)
 
-if manual_seed is not None:
-    print("Randomness: no, seed", manual_seed)
-else:
-    print("Randomness: yes")
+
+print("Random seed:", random_seed)
+
 print("Experiment repeat:", experiment_repeat)
 print("=====(end)=====")
 print()
@@ -134,7 +148,7 @@ for e in range(experiment_repeat):
 
     print("Step 3: Build train/test/validation dataset")
     # Build train/test/validation dataset
-    train_dataloaders, test_dataloaders, validation_dataloaders = build_train_test_validation_dataset(noramlized_nparrays, mode, history_length, None, batch_size, device)
+    train_dataloaders, test_dataloaders, validation_dataloaders = build_train_test_validation_dataset(noramlized_nparrays, mode, history_length, episode_length, batch_size, device)
 
     print("--train dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in train_dataloaders])
     print("--test dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in test_dataloaders])
@@ -157,13 +171,19 @@ for e in range(experiment_repeat):
     print("Step 5: Train environment model")
     # train the environment model
     if mode == 0 or mode == 1:
-        trainer = BehaviorCloning1TickFutureTrainer(device=device, sut=line_tracer)
+        trainer = BehaviorCloning1TickTrainer(device=device, sut=line_tracer)
         training_loss, dagger_count = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
                                                     test_dataloaders=test_dataloaders, dagger=dagger_on,
                                                     max_dagger=max_dagger, dagger_threshold=dagger_threshold,
                                                     dagger_batch_size=batch_size, distance_metric=distance_metric)
-    print("--training loss:", training_loss)
-    print("--dagger count:", dagger_count)
+        print("--training loss:", training_loss)
+        print("--dagger count:", dagger_count)
+    elif mode == 2:
+        trainer = BehaviorCloningEpisodeTrainer(device=device, sut=line_tracer)
+        training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
+                                                    test_dataloaders=test_dataloaders, loss_metric=episode_loss)
+        print("--training loss:", training_loss)
+
 
 
 
