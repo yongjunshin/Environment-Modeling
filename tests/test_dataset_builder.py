@@ -50,7 +50,7 @@ def test_build_train_test_validation_dataset_input_output_shape_check():
         normalized_nparrays.append(np.zeros((1000, 2)))
     history_length = 100
     batch_size = 300
-    device = 'cuda'
+    device = 'cpu'
 
     train_dls, test_dls, val_dls = dataset_builder.build_train_test_validation_dataset(normalized_nparrays, 0, history_length, None, batch_size, device)
 
