@@ -3,11 +3,12 @@ import glob
 import os
 import datetime
 
-from BehaviorCloning1TickTrainer import BehaviorCloning1TickTrainer
-from BehaviorCloningEpisodeTrainer import BehaviorCloningEpisodeTrainer
-from LineTracerEnvironmentModelGRU import LineTracerEnvironmentModelGRU
-from LineTracerVer1 import LineTracerVer1
-from DatasetBuilder import *
+from src.BehaviorCloning1TickTrainer import BehaviorCloning1TickTrainer
+from src.BehaviorCloningEpisodeTrainer import BehaviorCloningEpisodeTrainer
+from src.LineTracerEnvironmentModelGRU import LineTracerEnvironmentModelGRU
+from src.LineTracerVer1 import LineTracerVer1
+from src.DatasetBuilder import *
+import time
 
 
 parser = argparse.ArgumentParser()
@@ -29,7 +30,7 @@ parser.add_argument("-md", "--max_dagger", type=int,
 parser.add_argument("-dt", "--dagger_threshold", type=float,
                     help="dagger operation flag threshold", default=0.02)
 parser.add_argument("-dm", "--distance_metric", type=str,
-                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: wmd)", default='dtw')
+                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: dtw)", default='dtw')
 parser.add_argument("-el", "--episode_length", type=int,
                     help="episode length (default: same with history length)", default=None)
 parser.add_argument("-ms", "--manual_seed", type=int,
@@ -84,15 +85,22 @@ if mode == 2:
         episode_length = args.episode_length
 else:
     episode_length = args.episode_length
-manual_seed = args.manual_seed
-if manual_seed is not None:
-    torch.manual_seed(manual_seed)
-    torch.cuda.manual_seed(manual_seed)
-    torch.cuda.manual_seed_all(manual_seed)  # if use multi-GPU
+
+random_seed = args.manual_seed
+if random_seed == None:
+    random_seed = int(time.time())
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if use multi-GPU
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    np.random.seed(manual_seed)
-    random.seed(manual_seed)
+    np.random.seed(seed)
+    random.seed(seed)
+set_seed(random_seed)
+
+
 experiment_repeat = args.experiment_repeat
 episode_loss = args.episode_loss
 
@@ -115,10 +123,9 @@ elif mode == 2:
     print("Episode length:", episode_length)
     print("Episode loss:", episode_loss)
 
-if manual_seed is not None:
-    print("Randomness: no, seed", manual_seed)
-else:
-    print("Randomness: yes")
+
+print("Random seed:", random_seed)
+
 print("Experiment repeat:", experiment_repeat)
 print("=====(end)=====")
 print()
@@ -133,7 +140,7 @@ for e in range(experiment_repeat):
 
     raw_dfs = []
     for file in source_files:
-        raw_dfs.append(pd.read_csv(file, index_col='time'))
+        raw_dfs.append(pd.read_csv(file, index_col='time')[:300])
     print("--data size:", [raw_df.shape for raw_df in raw_dfs])
 
     print("Step 2: Data normalization")
