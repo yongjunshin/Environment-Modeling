@@ -3,11 +3,12 @@ import glob
 import os
 import datetime
 
-from src.BehaviorCloning1TickTrainer import BehaviorCloning1TickTrainer
-from src.BehaviorCloningEpisodeTrainer import BehaviorCloningEpisodeTrainer
-from src.LineTracerEnvironmentModelGRU import LineTracerEnvironmentModelGRU
-from src.LineTracerVer1 import LineTracerVer1
-from src.DatasetBuilder import *
+#from src.BehaviorCloning1TickTrainer import BehaviorCloning1TickTrainer
+from src.behavior_cloning import BehaviorCloningEpisodeTrainer
+from src.behavior_cloning import BehaviorCloning1TickTrainer
+from src.line_tracer_env_model import LineTracerEnvironmentModelGRU
+from src.line_tracer import LineTracerVer1
+from src.dataset_builder import *
 import time
 
 

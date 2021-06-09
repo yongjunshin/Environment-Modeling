@@ -1,9 +1,8 @@
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 import torch
 import numpy as np
-
-from src.fieldTestDataset import FieldTestDataset
+from torch.utils.data import DataLoader
+from src.field_test_dataset import FieldTestDataset
 from src.soft_dtw_cuda import SoftDTW
 
 
@@ -11,9 +10,27 @@ class BehaviorCloning1TickTrainer:
     def __init__(self, device, sut):
         self.device = device
         self.sut = sut
-        self.sdtw = SoftDTW(use_cuda=True, gamma=0.1)
+        if self.device == 'cuda':
+            self.sdtw = SoftDTW(use_cuda=True, gamma=0.1)
+        else:
+            self.sdtw = SoftDTW(use_cuda=False, gamma=0.1)
 
-    def train(self, model, epochs, train_dataloaders, test_dataloaders, dagger=False, max_dagger=10, dagger_threshold=0.01, dagger_batch_size=100, distance_metric="wmd"):
+    def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, test_dataloaders: list,
+              dagger: bool = False, max_dagger: int = 10, dagger_threshold: float = 0.01,
+              dagger_batch_size: int = 100, distance_metric: str = "dtw") -> (list, int):
+        """
+        Behavior cloning 1-tick NoDAgger/DAgger
+
+        :param model: environment model (torch.nn.Module)
+        :param epochs: training epochs (int)
+        :param train_dataloaders: list of training dataloaders (list of dataloaders)
+        :param test_dataloaders: list of testing dataloaders (list of dataloaders)
+        :param dagger: dagger on/off (bool)
+        :param max_dagger: maximum number of dagger (int)
+        :param dagger_threshold: dagger operation threshold accuracy (float)
+        :param dagger_batch_size: new dagger dataset batch size (int)
+        :param distance_metric: ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: dtw) (str)
+        """
         loss_fn = torch.nn.MSELoss()
         optimiser = torch.optim.Adam(model.parameters(), lr=0.01)
         training_loss = np.zeros(epochs)
@@ -103,7 +120,17 @@ class BehaviorCloning1TickTrainer:
 
         return new_x, new_y
 
-    def input_distances(self, new_x_data, reference_dataset, method, weights, weights_sum):
+    def input_distances(self, new_x_data: torch.Tensor, reference_dataset: torch.Tensor, method: str, weights: torch.Tensor, weights_sum: torch.Tensor):
+        """
+        Calculate distances from new_x_data to elements of reference_dataset
+
+        :param new_x_data: target time series (torch.Tensor: shape(#sequence, #factor))
+        :param reference_dataset: set of reference time series (torch.Tensor: shape(#batch, #sequence, #factor))
+        :param method: ['ed', 'wed', 'md', 'wmd', 'dtw'] (str)
+        :param weights: tensor of weigths (torch.Tensor: shape(#sequence))
+        :param weights_sum: sum of weights (torch.Tensor: shape(1))
+        :return: tensor of distances (torch.Tensor: shape(#batch))
+        """
         if method == "ed":
             # euclidean distance
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))
@@ -131,7 +158,6 @@ class BehaviorCloning1TickTrainer:
             diffs = torch.sum(diffs, dim=(1, 2)) / weights_sum
             return diffs
         elif method == "dtw":
-            #diff, path = fastdtw(reference.cpu().detach().numpy(), target.cpu().detach().numpy(), dist=euclidean)
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))
             diffs = self.sdtw(reshaped_new_dataset, reference_dataset)
             return diffs
@@ -140,3 +166,81 @@ class BehaviorCloning1TickTrainer:
             quit()
 
 
+class BehaviorCloningEpisodeTrainer:
+    def __init__(self, device, sut):
+        self.device = device
+        self.sut = sut
+
+    def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, test_dataloaders: list, loss_metric: str = "mdtw"):
+        """
+        Behavior cloning episode
+
+        :param model: environment model (torch.nn.Module)
+        :param epochs: training epochs (int)
+        :param train_dataloaders: list of training dataloaders (list of dataloaders)
+        :param test_dataloaders: list of testing dataloaders (list of dataloaders)
+        :param loss_metric: ['mse', 'mdtw'] (default: mdtw) (str)
+        """
+        if loss_metric == "mse":
+            loss_fn = torch.nn.MSELoss()
+        elif loss_metric == "mdtw":
+            class MDTWLoss(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.sdtw = SoftDTW(use_cuda=True, gamma=0.1)
+
+                def forward(self, y_pred, y):
+                    diffs = self.sdtw(y_pred, y)
+
+                    # if diffs[0] < 0:
+                    #     plt.figure(figsize=(10, 5))
+                    #     plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
+                    #     plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
+                    #     plt.legend()
+                    #     plt.show()
+                    return diffs.mean()
+
+            loss_fn = MDTWLoss()
+        else:
+            print("[Error] Wrong history distance metric and parameters.")
+            quit()
+        optimiser = torch.optim.Adam(model.parameters(), lr=0.01)
+        training_loss = np.zeros(epochs)
+
+
+        num_batch = sum([len(dl) for dl in train_dataloaders])
+        for i in tqdm(range(epochs), desc="Epochs:"):
+            for dataloader in train_dataloaders:
+                for batch_idx, (x, y) in enumerate(dataloader):
+                    model.train()
+                    y_pred = torch.zeros(y.shape, device=self.device)
+                    sim_x = x
+                    for sim_idx in range(y.shape[1]):
+                        y_pred_one_step = model(sim_x)
+                        y_pred[:, sim_idx, 0] = y_pred_one_step[:, 0]
+
+                        env_prediction = y_pred_one_step.cpu().detach().numpy()
+                        sys_operations = self.sut.act_sequential(env_prediction)
+                        next_x = np.concatenate((env_prediction, sys_operations), axis=1)
+                        next_x = torch.tensor(next_x).to(device=self.device).type(torch.float32)
+                        next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
+                        sim_x = sim_x[:, 1:]
+                        sim_x = torch.cat((sim_x, next_x), 1)
+
+                    loss = loss_fn(y_pred, y)
+                    training_loss[i] = training_loss[i] + loss.item()
+
+                    optimiser.zero_grad()
+                    loss.backward()
+                    optimiser.step()
+
+                    # plt.figure(figsize=(10, 5))
+                    # plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
+                    # plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
+                    # plt.legend()
+                    # plt.show()
+            training_loss[i] = training_loss[i] / num_batch
+
+            #print(training_loss[i])
+
+        return training_loss
