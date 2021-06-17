@@ -3,7 +3,6 @@ import glob
 import os
 import datetime
 
-#from src.BehaviorCloning1TickTrainer import BehaviorCloning1TickTrainer
 from src.behavior_cloning import BehaviorCloningEpisodeTrainer
 from src.behavior_cloning import BehaviorCloning1TickTrainer
 from src.line_tracer_env_model import LineTracerEnvironmentModelGRU
@@ -23,7 +22,7 @@ parser.add_argument("-m", "--mode", type=str,
 parser.add_argument("-l", "--history_length", type=int,
                     help="history length (default: 100)", default=100)
 parser.add_argument("-e", "--epochs", type=int,
-                    help="num epochs (default: 30)", default=30)
+                    help="num epochs (default: 50)", default=50)
 parser.add_argument("-b", "--batch_size", type=int,
                     help="mini batch size (default: 128)", default=1000)
 parser.add_argument("-md", "--max_dagger", type=int,
@@ -31,7 +30,7 @@ parser.add_argument("-md", "--max_dagger", type=int,
 parser.add_argument("-dt", "--dagger_threshold", type=float,
                     help="dagger operation flag threshold", default=0.02)
 parser.add_argument("-dm", "--distance_metric", type=str,
-                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: dtw)", default='dtw')
+                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: dtw)", default='wmd')
 parser.add_argument("-el", "--episode_length", type=int,
                     help="episode length (default: same with history length)", default=None)
 parser.add_argument("-ms", "--manual_seed", type=int,
@@ -39,7 +38,7 @@ parser.add_argument("-ms", "--manual_seed", type=int,
 parser.add_argument("-er", "--experiment_repeat", type=int,
                     help="experiment repeat (default: 1)", default=1)
 parser.add_argument("-els", "--episode_loss", type=str,
-                    help="episode loss function ['mse', 'mdtw'](default: mse)", default='mdtw')
+                    help="episode loss function ['mse', 'mdtw', 'pcc'](default: mse)", default='pcc')
 
 args = parser.parse_args()
 
@@ -111,6 +110,7 @@ print("=====Input specification=====")
 print("Available device:", device)
 print("Source data:", source_files)
 print("History length:", history_length)
+print("Batch size:", batch_size)
 print("Epochs:", epochs)
 if mode == 0:
     print("Environment model generation algorithm: 1-tick Behavior Cloning without DAgger")
@@ -141,7 +141,7 @@ for e in range(experiment_repeat):
 
     raw_dfs = []
     for file in source_files:
-        raw_dfs.append(pd.read_csv(file, index_col='time')[:300])
+        raw_dfs.append(pd.read_csv(file, index_col='time'))
     print("--data size:", [raw_df.shape for raw_df in raw_dfs])
 
     print("Step 2: Data normalization")
@@ -149,11 +149,11 @@ for e in range(experiment_repeat):
 
     print("Step 3: Build train/test/validation dataset")
     # Build train/test/validation dataset
-    train_dataloaders, test_dataloaders, validation_dataloaders = build_train_test_validation_dataset(noramlized_nparrays, mode, history_length, episode_length, batch_size, device)
+    train_dataloaders, validation_dataloaders, testing_dataloaders = build_train_test_validation_dataset(noramlized_nparrays, mode, history_length, episode_length, batch_size, device)
 
     print("--train dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in train_dataloaders])
-    print("--test dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in test_dataloaders])
     print("--validation dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in validation_dataloaders])
+    print("--testing dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in testing_dataloaders])
 
     print("Step 4: Build environment model")
     # instantiate a moddel
@@ -174,7 +174,7 @@ for e in range(experiment_repeat):
     if mode == 0 or mode == 1:
         trainer = BehaviorCloning1TickTrainer(device=device, sut=line_tracer)
         training_loss, dagger_count = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
-                                                    test_dataloaders=test_dataloaders, dagger=dagger_on,
+                                                    validation_dataloaders=validation_dataloaders, dagger=dagger_on,
                                                     max_dagger=max_dagger, dagger_threshold=dagger_threshold,
                                                     dagger_batch_size=batch_size, distance_metric=distance_metric)
         print("--training loss:", training_loss)
@@ -182,7 +182,7 @@ for e in range(experiment_repeat):
     elif mode == 2:
         trainer = BehaviorCloningEpisodeTrainer(device=device, sut=line_tracer)
         training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
-                                                    test_dataloaders=test_dataloaders, loss_metric=episode_loss)
+                                                    validation_dataloaders=validation_dataloaders, loss_metric=episode_loss)
         print("--training loss:", training_loss)
 
 

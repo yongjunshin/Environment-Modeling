@@ -93,8 +93,8 @@ def build_train_test_validation_dataset(noramlized_nparrays: list, mode: int, hi
     :return list of validation dataloaders (list)
     """
     train_dataloaders = []
+    val_dataloaders = []
     test_dataloaders = []
-    validation_dataloaders = []
     for normalized_data in noramlized_nparrays:
         if mode == 0 or mode == 1:
             x_data, y_data = build_nparray_dataset_1tick(normalized_data, history_length)
@@ -114,18 +114,18 @@ def build_train_test_validation_dataset(noramlized_nparrays: list, mode: int, hi
                 device=device)),
             batch_size=batch_size, shuffle=False))
 
-        test_loc = split_loc.index(2)
+        val_loc = split_loc.index(2)
+        val_dataloaders.append(DataLoader(dataset=FieldTestDataset(
+            torch.from_numpy(x_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device),
+            torch.from_numpy(y_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device)),
+            batch_size=batch_size, shuffle=False))
+
+        test_loc = split_loc.index(1)
         test_dataloaders.append(DataLoader(dataset=FieldTestDataset(
             torch.from_numpy(x_data[split_idx[test_loc]:split_idx[test_loc + 1]]).type(torch.Tensor).to(device=device),
             torch.from_numpy(y_data[split_idx[test_loc]:split_idx[test_loc + 1]]).type(torch.Tensor).to(device=device)),
             batch_size=batch_size, shuffle=False))
 
-        val_loc = split_loc.index(1)
-        validation_dataloaders.append(DataLoader(dataset=FieldTestDataset(
-            torch.from_numpy(x_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device),
-            torch.from_numpy(y_data[split_idx[val_loc]:split_idx[val_loc + 1]]).type(torch.Tensor).to(device=device)),
-            batch_size=batch_size, shuffle=False))
-
-    return train_dataloaders, test_dataloaders, validation_dataloaders
+    return train_dataloaders, val_dataloaders, test_dataloaders
 
 
