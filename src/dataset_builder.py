@@ -78,6 +78,28 @@ def build_nparray_dataset_episode(nparray: np.ndarray, history_length: int, epis
     return np.array(X_data), np.array(Y_data)
 
 
+def build_nparray_dataset_gail(nparray: np.ndarray, history_length: int, episode_length: int) -> (np.ndarray, np.ndarray):
+    """
+        Build X and Y dataset from given time series in nparray.
+        History sequence length in X dataset is history_length.
+        Future sequence length in Y dataset is episode_length.
+
+        :param nparray: time series data (np.ndarray)
+        :param history_length: length of a history (int)
+        :param episode_length: length of a future (int)
+        :return X data (np.ndarray)
+        :return Y data (np.ndarray)
+        """
+    X_data = []
+    Y_data = []
+    for i in range(0, nparray.shape[0] - history_length - episode_length):
+        x = nparray[i:i + history_length, :]
+        y = nparray[i + history_length:i + history_length + episode_length, :]
+        X_data.append(x)
+        Y_data.append(y)
+    return np.array(X_data), np.array(Y_data)
+
+
 def build_train_test_validation_dataset(noramlized_nparrays: list, mode: int, history_length: int, episode_length: int, batch_size: int, device: torch.device) -> (list, list, list):
     """
     Build dataloaders for training, testing, validation from given time series datasets.
@@ -100,6 +122,8 @@ def build_train_test_validation_dataset(noramlized_nparrays: list, mode: int, hi
             x_data, y_data = build_nparray_dataset_1tick(normalized_data, history_length)
         elif mode == 2:
             x_data, y_data = build_nparray_dataset_episode(normalized_data, history_length, episode_length)
+        elif mode == 3:
+            x_data, y_data = build_nparray_dataset_gail(normalized_data, history_length, episode_length)
 
         len = x_data.shape[0]
         split_loc = [7, 2, 1]

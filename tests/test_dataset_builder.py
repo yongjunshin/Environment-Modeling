@@ -44,6 +44,19 @@ def test_build_nparray_dataset_episode_input_output_shape_check():
     assert x.shape[2] == nparray.shape[1]
     assert y.shape[2] == 1
 
+def test_build_nparray_dataset_gail_input_output_shape_check():
+    nparray = np.zeros((1000, 2))
+    history_length = 10
+    episode_length = 15
+    x, y = dataset_builder.build_nparray_dataset_gail(nparray, history_length, episode_length)
+
+    assert nparray.shape[0] - history_length - episode_length == x.shape[0]
+    assert nparray.shape[0] - history_length - episode_length == y.shape[0]
+    assert x.shape[1] == history_length
+    assert y.shape[1] == episode_length
+    assert x.shape[2] == nparray.shape[1]
+    assert y.shape[2] == nparray.shape[1]
+
 def test_build_train_test_validation_dataset_input_output_shape_check():
     normalized_nparrays = []
     for i in range(3):

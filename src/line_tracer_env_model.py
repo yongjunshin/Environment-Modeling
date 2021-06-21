@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.distributions import Normal
 
 
 class LineTracerEnvironmentModelGRU(nn.Module):
@@ -18,4 +19,16 @@ class LineTracerEnvironmentModelGRU(nn.Module):
         out, (hn) = self.gru(x, (h0.detach()))
         out = self.fc(out[:, -1, :])
         return out
+
+    def get_distribution(self, x):
+        mu = self.forward(x)
+        sigma = torch.ones_like(mu) * 0.001
+        dist = Normal(mu, sigma)
+        return dist
+
+    def act(self, x):
+        dist = self.get_distribution(x)
+        action = dist.sample()
+        action = action.detach()
+        return action
 

@@ -104,8 +104,8 @@ class BehaviorCloning1TickTrainer:
                     plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
                     plt.plot(y[:100, [0]].cpu().detach().numpy(), label="y")
                     plt.legend()
-                    #plt.show()
-                    plt.savefig('output/imgs/Dagger/fig'+str(i)+'.png', dpi=300)
+                    plt.show()
+                    #plt.savefig('output/imgs/Dagger/fig'+str(i)+'.png', dpi=300)
             # Simulation visualization end
 
         return training_loss, dagger_count
@@ -277,8 +277,8 @@ class BehaviorCloningEpisodeTrainer:
                         plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
                         plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
                         plt.legend()
-                        #plt.show()
-                        plt.savefig('output/imgs/temp/fig' + str(i) + '.png', dpi=300)
+                        plt.show()
+                        #plt.savefig('output/imgs/episode_pcc/fig' + str(i) + '.png', dpi=300)
                     # Simulation visualization end
 
                     loss = loss_fn(y_pred, y)

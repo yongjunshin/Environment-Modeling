@@ -5,6 +5,7 @@ import datetime
 
 from src.behavior_cloning import BehaviorCloningEpisodeTrainer
 from src.behavior_cloning import BehaviorCloning1TickTrainer
+from src.gail import GailTrainer
 from src.line_tracer_env_model import LineTracerEnvironmentModelGRU
 from src.line_tracer import LineTracerVer1
 from src.dataset_builder import *
@@ -16,9 +17,9 @@ parser.add_argument("-f", "--source_file", type=str, nargs='+',
                     help="<Mandatory (or -d)> field test data source files (list seperated by spaces)", default=["data/ver1_fixed_interval/ver1_ft_60_30.csv", "data/ver1_fixed_interval/ver1_ft_60_40.csv"])
 parser.add_argument("-d", "--source_directory", type=str,
                     help="<Mandatory (or -f)> filed test data directory (It will read only *.csv files.)", default=None)
-possible_mode = ["bc_1tick_noDagger", "bc_1tick_Dagger", "bc_episode"]
+possible_mode = ["bc_1tick_noDagger", "bc_1tick_Dagger", "bc_episode", "gail"]
 parser.add_argument("-m", "--mode", type=str,
-                    help="model generation algorithm among "+str(possible_mode)+" (default: bc_1tick_noDagger)", default='bc_episode')
+                    help="model generation algorithm among "+str(possible_mode)+" (default: bc_1tick_noDagger)", default='gail')
 parser.add_argument("-l", "--history_length", type=int,
                     help="history length (default: 100)", default=100)
 parser.add_argument("-e", "--epochs", type=int,
@@ -61,6 +62,8 @@ def mode_selection(args):
         mode = 1
     elif args.mode == "bc_episode":
         mode = 2
+    elif args.mode == "gail":
+        mode = 3
 
     return mode
 
@@ -78,7 +81,7 @@ else:
 max_dagger = args.max_dagger
 dagger_threshold = args.dagger_threshold
 distance_metric = args.distance_metric
-if mode == 2:
+if mode == 2 or mode == 3:
     if args.episode_length is None:
         episode_length = history_length
     else:
@@ -123,6 +126,8 @@ elif mode == 2:
     print("Environment model generation algorithm: Episode Behavior Cloning")
     print("Episode length:", episode_length)
     print("Episode loss:", episode_loss)
+elif mode == 3:
+    print("Environment model generation algorithm: GAIL")
 
 
 print("Random seed:", random_seed)
@@ -149,11 +154,13 @@ for e in range(experiment_repeat):
 
     print("Step 3: Build train/test/validation dataset")
     # Build train/test/validation dataset
+
     train_dataloaders, validation_dataloaders, testing_dataloaders = build_train_test_validation_dataset(noramlized_nparrays, mode, history_length, episode_length, batch_size, device)
 
     print("--train dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in train_dataloaders])
     print("--validation dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in validation_dataloaders])
     print("--testing dataset shape:", [str(loader.dataset.x.shape) +'->' + str(loader.dataset.y.shape) for loader in testing_dataloaders])
+
 
     print("Step 4: Build environment model")
     # instantiate a moddel
@@ -184,6 +191,11 @@ for e in range(experiment_repeat):
         training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
                                                     validation_dataloaders=validation_dataloaders, loss_metric=episode_loss)
         print("--training loss:", training_loss)
+    elif mode == 3:
+        trainer = GailTrainer(device=device, sut=line_tracer, dim=input_dim*history_length)
+        training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
+                                                    validation_dataloaders=validation_dataloaders)
+
 
 
 
