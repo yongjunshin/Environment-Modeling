@@ -23,7 +23,7 @@ parser.add_argument("-m", "--mode", type=str,
 parser.add_argument("-l", "--history_length", type=int,
                     help="history length (default: 100)", default=100)
 parser.add_argument("-e", "--epochs", type=int,
-                    help="num epochs (default: 50)", default=50)
+                    help="num epochs (default: 50)", default=500000)
 parser.add_argument("-b", "--batch_size", type=int,
                     help="mini batch size (default: 128)", default=1000)
 parser.add_argument("-md", "--max_dagger", type=int,
@@ -192,7 +192,7 @@ for e in range(experiment_repeat):
                                                     validation_dataloaders=validation_dataloaders, loss_metric=episode_loss)
         print("--training loss:", training_loss)
     elif mode == 3:
-        trainer = GailTrainer(device=device, sut=line_tracer, dim=input_dim*history_length)
+        trainer = GailTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length,)
         training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
                                                     validation_dataloaders=validation_dataloaders)
 

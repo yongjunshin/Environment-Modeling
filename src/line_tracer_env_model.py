@@ -22,7 +22,7 @@ class LineTracerEnvironmentModelGRU(nn.Module):
 
     def get_distribution(self, x):
         mu = self.forward(x)
-        sigma = torch.ones_like(mu) * 0.001
+        sigma = torch.ones_like(mu) * 0.01
         dist = Normal(mu, sigma)
         return dist
 
