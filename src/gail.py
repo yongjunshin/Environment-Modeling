@@ -16,7 +16,7 @@ class GailTrainer:
         self.discriminator = Discriminator((state_dim + action_dim) * history_length).to(device=self.device)
         self.value = ValueNet(state_dim * history_length).to(device=self.device)
 
-        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.001)
+        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.0001)
         self.optimiser_v = torch.optim.Adam(self.value.parameters(), lr=0.0001)
 
         self.disc_iter = 2
@@ -27,7 +27,6 @@ class GailTrainer:
         self.lmbda = 0.95
         self.eps_clip = 0.1
 
-        self.entropy_weight = 0.0001
 
     def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list):
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=0.0001)
@@ -74,7 +73,7 @@ class GailTrainer:
                         # get Value
                         value = self.value(torch.reshape(state_action[:, [1]], (1, state_action.shape[0], self.state_dim)))
                         values.append(value)
-                    print(pi_rewards)
+                    #print(pi_rewards)
                     # training
                     self.train_discriminator(exp_states_actions, pi_states_actions_prime)
                     self.train_policy_value_net(model, pi_states_actions, pi_rewards, pi_states_actions_prime, pi_action_prop)

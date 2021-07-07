@@ -6,7 +6,10 @@ import datetime
 from src.behavior_cloning import BehaviorCloningEpisodeTrainer
 from src.behavior_cloning import BehaviorCloning1TickTrainer
 from src.gail import GailTrainer
+from src.gail_reinforce import GailReinforceTrainer
+from src.gail_actor_critic import GailActorCriticTrainer
 from src.line_tracer_env_model import LineTracerEnvironmentModelGRU
+from src.line_tracer_env_model import LineTracerEnvironmentModelDNN
 from src.line_tracer import LineTracerVer1
 from src.dataset_builder import *
 import time
@@ -168,7 +171,8 @@ for e in range(experiment_repeat):
     hidden_dim = 16
     num_layers = 2
     output_dim = 1
-    model = LineTracerEnvironmentModelGRU(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, num_layers=num_layers, device=device)
+    #model = LineTracerEnvironmentModelGRU(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, num_layers=num_layers, device=device)
+    model = LineTracerEnvironmentModelDNN(input_dim=input_dim*history_length, hidden_dim=hidden_dim, output_dim=output_dim, num_layers=num_layers, device=device)
     model.to(device=device)
     print("--environment model summary:", model)
 
@@ -192,7 +196,9 @@ for e in range(experiment_repeat):
                                                     validation_dataloaders=validation_dataloaders, loss_metric=episode_loss)
         print("--training loss:", training_loss)
     elif mode == 3:
-        trainer = GailTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length,)
+        #trainer = GailTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
+        #trainer = GailReinforceTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
+        trainer = GailActorCriticTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
         training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
                                                     validation_dataloaders=validation_dataloaders)
 
