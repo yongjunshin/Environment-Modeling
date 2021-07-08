@@ -261,6 +261,7 @@ class BehaviorCloningEpisodeTrainer:
                     sim_x = x
                     for sim_idx in range(y.shape[1]):
                         y_pred_one_step = model(sim_x)
+                        y_pred_one_step = y_pred_one_step + torch.normal(mean=torch.zeros(y_pred_one_step.shape), std=torch.ones(y_pred_one_step.shape)*0.01).to(device=self.device)
                         y_pred[:, sim_idx, 0] = y_pred_one_step[:, 0]
 
                         env_prediction = y_pred_one_step.cpu().detach().numpy()
