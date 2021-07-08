@@ -1,11 +1,12 @@
 from tqdm import tqdm
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torchviz import make_dot
 
 
-class GailActorCriticTrainer:
+class GailPPOTrainer:
     def __init__(self, device, sut, state_dim, action_dim, history_length):
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -20,7 +21,11 @@ class GailActorCriticTrainer:
         self.disc_iter = 2
         self.disc_loss = nn.MSELoss()
 
+        self.ppo_iter = 5
+
         self.gamma = 0.98
+        self.lmbda = 0.95
+        self.eps_clip = 0.2
 
     def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list):
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -38,8 +43,8 @@ class GailActorCriticTrainer:
                     sim_x = x
                     for sim_idx in range(y.shape[1]):
                         # action choice
-                        action_prob = model.get_distribution(sim_x)
-                        action = action_prob.sample().detach()
+                        action_distribution = model.get_distribution(sim_x)
+                        action = action_distribution.sample().detach()
 
                         # state transition
                         sys_operations = self.sut.act_sequential(action.cpu().numpy())
@@ -60,15 +65,21 @@ class GailActorCriticTrainer:
                     sim_x = x
                     rewards = []
                     probs = []
-                    losses = []
+                    deltas = []
+                    states = []
+                    states_prime = []
+                    actions = []
+                    targets = []
                     for sim_idx in range(y.shape[1]):
                         # value estimate
                         cur_v = model.v(sim_x)
 
                         # action choice
-                        action_prob = model.get_distribution(sim_x)
-                        action = action_prob.sample().detach()
-                        prob = action_prob.log_prob(action)
+                        action_distribution = model.get_distribution(sim_x)
+                        states.append(sim_x)
+                        action = action_distribution.sample().detach()
+                        actions.append(action)
+                        prob = action_distribution.log_prob(action)
                         probs.append(prob)
 
                         # state transition
@@ -79,15 +90,17 @@ class GailActorCriticTrainer:
                         sim_x = sim_x[:, 1:]
                         sim_x = torch.cat((sim_x, next_x), dim=1)
                         y_pred[:, sim_idx] = sim_x[:, -1]
+                        states_prime.append(sim_x)
 
                         # get reward
                         reward = self.get_reward(sim_x).detach()
                         rewards.append(reward)
 
-                        delta = reward + self.gamma * model.v(sim_x) - cur_v
-                        loss = -prob * delta.detach() + torch.abs(delta)
-                        losses.append(loss)
-                    self.train_policy_value_net(model, losses)
+                        target = reward + self.gamma * model.v(sim_x)
+                        targets.append(target.detach())
+                        delta = target - cur_v
+                        deltas.append(delta.detach())
+                    self.train_policy_value_net(model, states, states_prime, actions, probs, rewards)
 
                     if batch_idx == 0 and loader_idx == 0:
                         plt.figure(figsize=(10, 5))
@@ -95,7 +108,7 @@ class GailActorCriticTrainer:
                         plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
                         plt.legend()
                         plt.show()
-                        #plt.savefig('output/imgs/gail_actor_critic/fig' + str(i) + '.png', dpi=300)
+                        #plt.savefig('output/imgs/gail_ppo/fig' + str(i) + '.png', dpi=300)
                 loader_idx = loader_idx + 1
 
     def train_discriminator(self, exp_trajectory, pi_trajectory):
@@ -114,13 +127,52 @@ class GailActorCriticTrainer:
             loss.backward()
             self.optimiser_d.step()
 
-    def train_policy_value_net(self, model, losses):
-        self.optimiser_pi.zero_grad()
-        for loss in losses:
+    def train_policy_value_net(self, model, states, states_prime, actions, probs, rewards):
+        steps = len(states)
+        batches = len(states[0])
+        probs = torch.cat(probs, dim=1).detach()
+        probs = torch.reshape(probs, (probs.shape[0] * probs.shape[1], 1))
+
+        # reducing dimension for parallel calculation
+        t_states = torch.stack(states)
+        t_states = torch.reshape(t_states, (t_states.shape[0] * t_states.shape[1], t_states.shape[2], t_states.shape[3]))
+        t_states_prime = torch.stack(states_prime)
+        t_states_prime = torch.reshape(t_states_prime, (t_states_prime.shape[0] * t_states_prime.shape[1], t_states_prime.shape[2], t_states_prime.shape[3]))
+        t_rewards = torch.stack(rewards)
+        t_rewards = torch.reshape(t_rewards, (t_rewards.shape[0] * t_rewards.shape[1], 1))
+        t_actions = torch.stack(actions)
+        t_actions = torch.reshape(t_actions, (t_actions.shape[0] * t_actions.shape[1], 1))
+
+        for _ in range(self.ppo_iter):
+            # calculating advantage
+            td_target = t_rewards + self.gamma * model.v(t_states_prime)
+            v = model.v(t_states)
+            delta = td_target - v
+            delta = torch.reshape(delta, (steps, batches, 1)).detach()
+            deltas = [delta[i] for i in range(len(delta))]
+
+            advantage_list = []
+            advantage = torch.zeros((len(deltas[0]), 1), device=self.device)
+            for delta in deltas[::-1]:
+                advantage = delta + self.gamma * self.lmbda * advantage
+                advantage_list.append(advantage)
+            advantage_list.reverse()
+            advantage_list = torch.stack(advantage_list)
+            advantage_list = torch.reshape(advantage_list, (advantage_list.shape[0] * advantage_list.shape[1], 1))
+
+            # calculating action probability ratio
+            cur_distribution = model.get_distribution(t_states)
+            cur_probs = cur_distribution.log_prob(t_actions)
+            ratio = torch.exp(cur_probs - probs)
+            surr1 = ratio * advantage_list
+            surr2 = torch.clamp(ratio, 1-self.eps_clip, 1+self.eps_clip) * advantage_list
+            loss_clip = -torch.min(surr1, surr2)
+            loss_value = F.smooth_l1_loss(td_target, v)
+            loss = loss_clip + loss_value
+
+            self.optimiser_pi.zero_grad()
             loss.mean().backward()
-            #make_dot(loss.mean(), params=dict(model.named_parameters())).render(
-             #   "graph", format="png")
-        self.optimiser_pi.step()
+            self.optimiser_pi.step()
 
     def get_reward(self, state_action):
         reward = self.discriminator.forward(state_action)

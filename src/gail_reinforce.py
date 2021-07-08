@@ -1,8 +1,6 @@
 from tqdm import tqdm
 import torch
-import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torchviz import make_dot
 
@@ -91,7 +89,7 @@ class GailReinforceTrainer:
                         plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
                         plt.legend()
                         plt.show()
-                        #plt.savefig('output/imgs/episode_pcc/fig' + str(i) + '.png', dpi=300)
+                        #plt.savefig('output/imgs/gail_reinforce/fig' + str(i) + '.png', dpi=300)
                 loader_idx = loader_idx + 1
 
     def train_discriminator(self, exp_trajectory, pi_trajectory):
@@ -99,7 +97,6 @@ class GailReinforceTrainer:
         exp_trajectory_label = torch.zeros(len(exp_trajectory))
         pi_trajectory_label = torch.ones(len(pi_trajectory))
         labels = torch.cat((exp_trajectory_label, pi_trajectory_label)).to(device=self.device).type(torch.float32)
-        #labels = torch.tensor(exp_trajectory_label + pi_trajectory_label).to(device=self.device).type(torch.float32)
         labels = torch.reshape(labels, (labels.shape[0], 1))
 
         for i in range(self.disc_iter):
@@ -112,7 +109,7 @@ class GailReinforceTrainer:
             self.optimiser_d.step()
 
     def train_policy_value_net(self, model, rewards, pi_action_prob):
-        R = torch.zeros((len(rewards[1]), 1), device=self.device)
+        R = torch.zeros((len(rewards[0]), 1), device=self.device)
 
         i = 0
         prob_len = len(pi_action_prob)
@@ -120,44 +117,16 @@ class GailReinforceTrainer:
         for reward in rewards[::-1]:
             R = reward + self.gamma * R
             loss = -pi_action_prob[prob_len-i-1] * R
-            #print(loss.mean())
-
-
             loss.mean().backward()
-
             i = i + 1
-            make_dot(loss.mean(), params=dict(model.named_parameters())).render(
-                 "graph", format="png")
+            # make_dot(loss.mean(), params=dict(model.named_parameters())).render(
+            #      "graph", format="png")
         self.optimiser_pi.step()
-
-
-
-
-
 
     def get_reward(self, state_action):
         reward = self.discriminator.forward(state_action)
         reward = -reward.log()
         return reward.detach()
-
-
-
-class ValueNet(nn.Module):
-    def __init__(self, input_dim):
-        super(ValueNet, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = 1
-
-        self.fc1 = nn.Linear(self.input_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, self.output_dim)
-
-    def forward(self, input):
-        input = torch.reshape(input, (input.shape[0], input.shape[1] * input.shape[2]))
-        x = F.relu(self.fc1(input))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
 
 
 class Discriminator(nn.Module):

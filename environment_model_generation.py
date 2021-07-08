@@ -5,10 +5,10 @@ import datetime
 
 from src.behavior_cloning import BehaviorCloningEpisodeTrainer
 from src.behavior_cloning import BehaviorCloning1TickTrainer
-from src.gail import GailTrainer
+from src.gail_ppo import GailPPOTrainer
 from src.gail_reinforce import GailReinforceTrainer
 from src.gail_actor_critic import GailActorCriticTrainer
-from src.line_tracer_env_model import LineTracerEnvironmentModelGRU
+#from src.line_tracer_env_model import LineTracerEnvironmentModelGRU
 from src.line_tracer_env_model import LineTracerEnvironmentModelDNN
 from src.line_tracer import LineTracerVer1
 from src.dataset_builder import *
@@ -33,16 +33,21 @@ parser.add_argument("-md", "--max_dagger", type=int,
                     help="maximum number of dagger", default=10)
 parser.add_argument("-dt", "--dagger_threshold", type=float,
                     help="dagger operation flag threshold", default=0.02)
+possible_distance_metric = ['ed', 'wed', 'md', 'wmd', 'dtw']
 parser.add_argument("-dm", "--distance_metric", type=str,
-                    help="history distance metric ['ed', 'wed', 'md', 'wmd', 'dtw'] (default: dtw)", default='wmd')
+                    help="history distance metric among "+str(possible_distance_metric)+" (default: dtw)", default='wmd')
 parser.add_argument("-el", "--episode_length", type=int,
                     help="episode length (default: same with history length)", default=None)
 parser.add_argument("-ms", "--manual_seed", type=int,
                     help="manual seed (default: random seed)", default=None)
 parser.add_argument("-er", "--experiment_repeat", type=int,
                     help="experiment repeat (default: 1)", default=1)
+possible_episode_loss = ['mse', 'mdtw', 'pcc']
 parser.add_argument("-els", "--episode_loss", type=str,
-                    help="episode loss function ['mse', 'mdtw', 'pcc'](default: mse)", default='pcc')
+                    help="episode loss function among "+str(possible_episode_loss)+"(default: mse)", default='pcc')
+possible_algorithms = ['reinforce', 'actor_critic', 'ppo']
+parser.add_argument("-algo", "--optimization_algorithm", type=str,
+                    help="optimization algorithm among "+str(possible_mode)+" (default: actor_critic)", default='ppo')
 
 args = parser.parse_args()
 
@@ -57,6 +62,15 @@ def mode_selection(args):
         quit()
     if args.mode not in possible_mode:
         print("[Error] Wrong mode was given. Select among " + str(possible_mode) + ". Refer help (-h).")
+        quit()
+    if args.distance_metric not in possible_distance_metric:
+        print("[Error] Wrong distance metric was given. Select among " + str(possible_distance_metric) + ". Refer help (-h).")
+        quit()
+    if args.episode_loss not in possible_episode_loss:
+        print("[Error] Wrong episode loss was given. Select among " + str(possible_episode_loss) + ". Refer help (-h).")
+        quit()
+    if args.optimization_algorithm not in possible_algorithms:
+        print("[Error] Wrong optimization algorithm was given. Select among " + str(possible_algorithms) + ". Refer help (-h).")
         quit()
 
     if args.mode == "bc_1tick_noDagger":
@@ -91,6 +105,9 @@ if mode == 2 or mode == 3:
         episode_length = args.episode_length
 else:
     episode_length = args.episode_length
+
+if mode == 3:
+    optimization_algorithm = args.optimization_algorithm
 
 random_seed = args.manual_seed
 if random_seed == None:
@@ -131,6 +148,7 @@ elif mode == 2:
     print("Episode loss:", episode_loss)
 elif mode == 3:
     print("Environment model generation algorithm: GAIL")
+    print("Optimization algorithm:", optimization_algorithm)
 
 
 print("Random seed:", random_seed)
@@ -197,8 +215,12 @@ for e in range(experiment_repeat):
         print("--training loss:", training_loss)
     elif mode == 3:
         #trainer = GailTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
-        #trainer = GailReinforceTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
-        trainer = GailActorCriticTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
+        if optimization_algorithm == 'reinforce':
+            trainer = GailReinforceTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
+        elif optimization_algorithm == 'actor_critic':
+            trainer = GailActorCriticTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
+        elif optimization_algorithm == 'ppo':
+            trainer = GailPPOTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
         training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
                                                     validation_dataloaders=validation_dataloaders)
 
