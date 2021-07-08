@@ -4,7 +4,11 @@ import numpy as np
 from torch.utils.data import DataLoader
 from src.field_test_dataset import FieldTestDataset
 from src.soft_dtw_cuda import SoftDTW
+import matplotlib.pyplot as plt
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 
 class BehaviorCloning1TickTrainer:
     def __init__(self, device, sut):
@@ -15,7 +19,7 @@ class BehaviorCloning1TickTrainer:
         else:
             self.sdtw = SoftDTW(use_cuda=False, gamma=0.1)
 
-    def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, test_dataloaders: list,
+    def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list,
               dagger: bool = False, max_dagger: int = 10, dagger_threshold: float = 0.01,
               dagger_batch_size: int = 100, distance_metric: str = "dtw") -> (list, int):
         """
@@ -73,9 +77,36 @@ class BehaviorCloning1TickTrainer:
                     dagger_dataloaders.append(DataLoader(dataset=FieldTestDataset(
                         new_x_tensor, new_y_tensor), batch_size=dagger_batch_size, shuffle=False))
 
+
             training_loss[i] = training_loss[i]/num_batch
             if dagger_flag:
                 dagger_count = dagger_count + 1
+
+            # Simulation visualization start
+            model.eval()
+            for batch_idx, (x, y) in enumerate(train_dataloaders[0]):
+                if batch_idx == 0:
+                    y_pred = torch.zeros(x.shape, device=self.device)
+                    sim_x = x
+                    for sim_idx in range(x.shape[1]):
+                        y_pred_one_step = model(sim_x)
+                        y_pred[:, sim_idx, 0] = y_pred_one_step[:, 0]
+
+                        env_prediction = y_pred_one_step.cpu().detach().numpy()
+                        sys_operations = self.sut.act_sequential(env_prediction)
+                        next_x = np.concatenate((env_prediction, sys_operations), axis=1)
+                        next_x = torch.tensor(next_x).to(device=self.device).type(torch.float32)
+                        next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
+                        sim_x = sim_x[:, 1:]
+                        sim_x = torch.cat((sim_x, next_x), 1)
+
+                    plt.figure(figsize=(10, 5))
+                    plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
+                    plt.plot(y[:100, [0]].cpu().detach().numpy(), label="y")
+                    plt.legend()
+                    plt.show()
+                    #plt.savefig('output/imgs/Dagger/fig'+str(i)+'.png', dpi=300)
+            # Simulation visualization end
 
         return training_loss, dagger_count
 
@@ -158,6 +189,7 @@ class BehaviorCloning1TickTrainer:
             diffs = torch.sum(diffs, dim=(1, 2)) / weights_sum
             return diffs
         elif method == "dtw":
+            # (soft) dynamic time warping
             reshaped_new_dataset = new_x_data.repeat((len(reference_dataset), 1, 1))
             diffs = self.sdtw(reshaped_new_dataset, reference_dataset)
             return diffs
@@ -171,7 +203,7 @@ class BehaviorCloningEpisodeTrainer:
         self.device = device
         self.sut = sut
 
-    def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, test_dataloaders: list, loss_metric: str = "mdtw"):
+    def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list, loss_metric: str = "mdtw"):
         """
         Behavior cloning episode
 
@@ -199,8 +231,19 @@ class BehaviorCloningEpisodeTrainer:
                     #     plt.legend()
                     #     plt.show()
                     return diffs.mean()
-
             loss_fn = MDTWLoss()
+        elif loss_metric == "pcc":
+            class PCCLoss(torch.nn.Module):
+                def __init__(self):
+                    super().__init__()
+
+                def forward(self, y_pred, y):
+                    vy_pred = y_pred - torch.mean(y_pred)
+                    vy = y - torch.mean(y)
+
+                    cor = torch.sum(vy_pred * vy) / (torch.sqrt(torch.sum(vy_pred ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
+                    return -torch.abs(cor)
+            loss_fn = PCCLoss()
         else:
             print("[Error] Wrong history distance metric and parameters.")
             quit()
@@ -210,6 +253,7 @@ class BehaviorCloningEpisodeTrainer:
 
         num_batch = sum([len(dl) for dl in train_dataloaders])
         for i in tqdm(range(epochs), desc="Epochs:"):
+            loader_idx = 0
             for dataloader in train_dataloaders:
                 for batch_idx, (x, y) in enumerate(dataloader):
                     model.train()
@@ -217,6 +261,7 @@ class BehaviorCloningEpisodeTrainer:
                     sim_x = x
                     for sim_idx in range(y.shape[1]):
                         y_pred_one_step = model(sim_x)
+                        y_pred_one_step = y_pred_one_step + torch.normal(mean=torch.zeros(y_pred_one_step.shape), std=torch.ones(y_pred_one_step.shape)*0.01).to(device=self.device)
                         y_pred[:, sim_idx, 0] = y_pred_one_step[:, 0]
 
                         env_prediction = y_pred_one_step.cpu().detach().numpy()
@@ -227,18 +272,24 @@ class BehaviorCloningEpisodeTrainer:
                         sim_x = sim_x[:, 1:]
                         sim_x = torch.cat((sim_x, next_x), 1)
 
+                    # Simulation visualization start
+                    if batch_idx == 0 and loader_idx == 0:
+                        plt.figure(figsize=(10, 5))
+                        plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
+                        plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
+                        plt.legend()
+                        plt.show()
+                        #plt.savefig('output/imgs/episode_pcc/fig' + str(i) + '.png', dpi=300)
+                    # Simulation visualization end
+
                     loss = loss_fn(y_pred, y)
                     training_loss[i] = training_loss[i] + loss.item()
 
                     optimiser.zero_grad()
                     loss.backward()
                     optimiser.step()
+                loader_idx = loader_idx + 1
 
-                    # plt.figure(figsize=(10, 5))
-                    # plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
-                    # plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
-                    # plt.legend()
-                    # plt.show()
             training_loss[i] = training_loss[i] / num_batch
 
             #print(training_loss[i])
