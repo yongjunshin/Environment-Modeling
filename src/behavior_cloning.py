@@ -20,7 +20,7 @@ class BehaviorCloning1TickTrainer:
             self.sdtw = SoftDTW(use_cuda=False, gamma=0.1)
 
     def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list,
-              dagger: bool = False, max_dagger: int = 10, dagger_threshold: float = 0.01,
+              episode_length: int, dagger: bool = False, max_dagger: int = 10, dagger_threshold: float = 0.01,
               dagger_batch_size: int = 100, distance_metric: str = "dtw") -> (list, int):
         """
         Behavior cloning 1-tick NoDAgger/DAgger
@@ -86,9 +86,9 @@ class BehaviorCloning1TickTrainer:
             model.eval()
             for batch_idx, (x, y) in enumerate(train_dataloaders[0]):
                 if batch_idx == 0:
-                    y_pred = torch.zeros(x.shape, device=self.device)
+                    y_pred = torch.zeros((x.shape[0], episode_length, x.shape[1]), device=self.device)
                     sim_x = x
-                    for sim_idx in range(x.shape[1]):
+                    for sim_idx in range(episode_length):
                         y_pred_one_step = model(sim_x)
                         y_pred[:, sim_idx, 0] = y_pred_one_step[:, 0]
 

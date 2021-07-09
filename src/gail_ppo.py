@@ -55,7 +55,7 @@ class GailPPOTrainer:
                         sim_x = torch.cat((sim_x, next_x), dim=1)
                         y_pred[:, sim_idx] = sim_x[:, -1]
 
-                    self.train_discriminator(y, y_pred.detach())
+                    self.train_discriminator(y[:,:self.history_length,:], y_pred.detach()[:,:self.history_length,:])
 
                     # Policy training
                     model.train()
@@ -76,11 +76,14 @@ class GailPPOTrainer:
 
                         # action choice
                         action_distribution = model.get_distribution(sim_x)
-                        states.append(sim_x)
+                        if sim_idx < self.history_length:
+                            states.append(sim_x)
                         action = action_distribution.sample().detach()
-                        actions.append(action)
+                        if sim_idx < self.history_length:
+                            actions.append(action)
                         prob = action_distribution.log_prob(action)
-                        probs.append(prob)
+                        if sim_idx < self.history_length:
+                            probs.append(prob)
 
                         # state transition
                         sys_operations = self.sut.act_sequential(action.cpu().numpy())
@@ -90,11 +93,13 @@ class GailPPOTrainer:
                         sim_x = sim_x[:, 1:]
                         sim_x = torch.cat((sim_x, next_x), dim=1)
                         y_pred[:, sim_idx] = sim_x[:, -1]
-                        states_prime.append(sim_x)
+                        if sim_idx < self.history_length:
+                            states_prime.append(sim_x)
 
                         # get reward
                         reward = self.get_reward(sim_x).detach()
-                        rewards.append(reward)
+                        if sim_idx < self.history_length:
+                            rewards.append(reward)
 
                         target = reward + self.gamma * model.v(sim_x)
                         targets.append(target.detach())

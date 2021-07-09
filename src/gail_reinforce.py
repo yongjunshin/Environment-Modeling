@@ -52,7 +52,7 @@ class GailReinforceTrainer:
                         sim_x = torch.cat((sim_x, next_x), dim=1)
                         y_pred[:, sim_idx] = sim_x[:, -1]
 
-                    self.train_discriminator(y, y_pred.detach())
+                    self.train_discriminator(y[:,:self.history_length,:], y_pred.detach()[:,:self.history_length,:])
 
                     # Policy training
                     model.train()
@@ -67,7 +67,8 @@ class GailReinforceTrainer:
                         action_prob = model.get_distribution(sim_x)
                         action = action_prob.sample().detach()
                         prob = action_prob.log_prob(action)
-                        probs.append(prob)
+                        if sim_idx < self.history_length:
+                            probs.append(prob)
 
                         # state transition
                         sys_operations = self.sut.act_sequential(action.cpu().numpy())
@@ -79,8 +80,9 @@ class GailReinforceTrainer:
                         y_pred[:, sim_idx] = sim_x[:, -1]
 
                         # get reward
-                        reward = self.get_reward(sim_x).detach()
-                        rewards.append(reward)
+                        if sim_idx < self.history_length:
+                            reward = self.get_reward(sim_x).detach()
+                            rewards.append(reward)
                     self.train_policy_value_net(model, rewards, probs)
 
                     if batch_idx == 0 and loader_idx == 0:

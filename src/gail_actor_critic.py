@@ -50,7 +50,7 @@ class GailActorCriticTrainer:
                         sim_x = torch.cat((sim_x, next_x), dim=1)
                         y_pred[:, sim_idx] = sim_x[:, -1]
 
-                    self.train_discriminator(y, y_pred.detach())
+                    self.train_discriminator(y[:,:self.history_length,:], y_pred.detach()[:,:self.history_length,:])
 
                     # Policy training
                     model.train()
@@ -81,12 +81,13 @@ class GailActorCriticTrainer:
                         y_pred[:, sim_idx] = sim_x[:, -1]
 
                         # get reward
-                        reward = self.get_reward(sim_x).detach()
-                        rewards.append(reward)
+                        if sim_idx < self.history_length:
+                            reward = self.get_reward(sim_x).detach()
+                            rewards.append(reward)
 
-                        delta = reward + self.gamma * model.v(sim_x) - cur_v
-                        loss = -prob * delta.detach() + torch.abs(delta)
-                        losses.append(loss)
+                            delta = reward + self.gamma * model.v(sim_x) - cur_v
+                            loss = -prob * delta.detach() + torch.abs(delta)
+                            losses.append(loss)
                     self.train_policy_value_net(model, losses)
 
                     if batch_idx == 0 and loader_idx == 0:

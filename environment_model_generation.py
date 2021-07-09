@@ -35,16 +35,16 @@ parser.add_argument("-dt", "--dagger_threshold", type=float,
                     help="dagger operation flag threshold", default=0.02)
 possible_distance_metric = ['ed', 'wed', 'md', 'wmd', 'dtw']
 parser.add_argument("-dm", "--distance_metric", type=str,
-                    help="history distance metric among "+str(possible_distance_metric)+" (default: dtw)", default='wmd')
+                    help="history distance metric among "+str(possible_distance_metric)+" (default: dtw)", default='dtw')
 parser.add_argument("-el", "--episode_length", type=int,
-                    help="episode length (default: same with history length)", default=None)
+                    help="episode length (default: same with history length)", default=100)
 parser.add_argument("-ms", "--manual_seed", type=int,
                     help="manual seed (default: random seed)", default=None)
 parser.add_argument("-er", "--experiment_repeat", type=int,
                     help="experiment repeat (default: 1)", default=1)
 possible_episode_loss = ['mse', 'mdtw', 'pcc']
 parser.add_argument("-els", "--episode_loss", type=str,
-                    help="episode loss function among "+str(possible_episode_loss)+"(default: mse)", default='pcc')
+                    help="episode loss function among "+str(possible_episode_loss)+"(default: mse)", default='mdtw')
 possible_algorithms = ['reinforce', 'actor_critic', 'ppo']
 parser.add_argument("-algo", "--optimization_algorithm", type=str,
                     help="optimization algorithm among "+str(possible_mode)+" (default: actor_critic)", default='ppo')
@@ -203,8 +203,8 @@ for e in range(experiment_repeat):
     if mode == 0 or mode == 1:
         trainer = BehaviorCloning1TickTrainer(device=device, sut=line_tracer)
         training_loss, dagger_count = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
-                                                    validation_dataloaders=validation_dataloaders, dagger=dagger_on,
-                                                    max_dagger=max_dagger, dagger_threshold=dagger_threshold,
+                                                    validation_dataloaders=validation_dataloaders, episode_length=episode_length,
+                                                    dagger=dagger_on, max_dagger=max_dagger, dagger_threshold=dagger_threshold,
                                                     dagger_batch_size=batch_size, distance_metric=distance_metric)
         print("--training loss:", training_loss)
         print("--dagger count:", dagger_count)
