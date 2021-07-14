@@ -3,6 +3,7 @@ import glob
 import os
 import datetime
 
+from src.bc_gail_ppo import BCGailPPOTrainer
 from src.behavior_cloning import BehaviorCloningEpisodeTrainer
 from src.behavior_cloning import BehaviorCloning1TickTrainer
 from src.gail_ppo import GailPPOTrainer
@@ -24,7 +25,7 @@ possible_mode = ["bc_1tick_noDagger", "bc_1tick_Dagger", "bc_episode", "gail"]
 parser.add_argument("-m", "--mode", type=str,
                     help="model generation algorithm among "+str(possible_mode)+" (default: bc_1tick_noDagger)", default='gail')
 parser.add_argument("-l", "--history_length", type=int,
-                    help="history length (default: 100)", default=100)
+                    help="history length (default: 100)", default=5)
 parser.add_argument("-e", "--epochs", type=int,
                     help="num epochs (default: 50)", default=500000)
 parser.add_argument("-b", "--batch_size", type=int,
@@ -45,9 +46,9 @@ parser.add_argument("-er", "--experiment_repeat", type=int,
 possible_episode_loss = ['mse', 'mdtw', 'pcc']
 parser.add_argument("-els", "--episode_loss", type=str,
                     help="episode loss function among "+str(possible_episode_loss)+"(default: mse)", default='mdtw')
-possible_algorithms = ['reinforce', 'actor_critic', 'ppo']
+possible_algorithms = ['reinforce', 'actor_critic', 'ppo', 'bc_ppo']
 parser.add_argument("-algo", "--optimization_algorithm", type=str,
-                    help="optimization algorithm among "+str(possible_mode)+" (default: actor_critic)", default='ppo')
+                    help="optimization algorithm among "+str(possible_mode)+" (default: actor_critic)", default='bc_ppo')
 
 args = parser.parse_args()
 
@@ -221,6 +222,8 @@ for e in range(experiment_repeat):
             trainer = GailActorCriticTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
         elif optimization_algorithm == 'ppo':
             trainer = GailPPOTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
+        elif optimization_algorithm == 'bc_ppo':
+            trainer = BCGailPPOTrainer(device=device, sut=line_tracer, state_dim=1, action_dim=1, history_length=history_length)
         training_loss = trainer.train(model=model, epochs=epochs, train_dataloaders=train_dataloaders,
                                                     validation_dataloaders=validation_dataloaders)
 

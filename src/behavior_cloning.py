@@ -55,8 +55,13 @@ class BehaviorCloning1TickTrainer:
                     loss = loss_fn(y, y_pred)
                     training_loss[i] = training_loss[i] + loss.item()
 
+                    bc_dist = model.get_distribution(x)
+                    target_y = y
+                    bc_loss = -bc_dist.log_prob(target_y)
+
                     optimiser.zero_grad()
-                    loss.backward()
+                    #loss.backward()
+                    bc_loss.mean().backward()
                     optimiser.step()
 
                     if dagger and dagger_count < max_dagger and loss < dagger_threshold:
@@ -89,7 +94,8 @@ class BehaviorCloning1TickTrainer:
                     y_pred = torch.zeros((x.shape[0], episode_length, x.shape[1]), device=self.device)
                     sim_x = x
                     for sim_idx in range(episode_length):
-                        y_pred_one_step = model(sim_x)
+                        #y_pred_one_step = model(sim_x)
+                        y_pred_one_step = model.act(sim_x)
                         y_pred[:, sim_idx, 0] = y_pred_one_step[:, 0]
 
                         env_prediction = y_pred_one_step.cpu().detach().numpy()
