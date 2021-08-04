@@ -17,10 +17,10 @@ class GailActorCriticTrainer:
 
         self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.001)
 
-        self.disc_iter = 2
+        self.disc_iter = 4
         self.disc_loss = nn.MSELoss()
 
-        self.gamma = 0.98
+        self.gamma = 0.99
 
     def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list):
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -36,7 +36,7 @@ class GailActorCriticTrainer:
 
                     y_pred = torch.zeros(y.shape, device=self.device)
                     sim_x = x
-                    for sim_idx in range(y.shape[1]):
+                    for sim_idx in range(self.history_length):
                         # action choice
                         action_prob = model.get_distribution(sim_x)
                         action = action_prob.sample().detach()
@@ -51,6 +51,11 @@ class GailActorCriticTrainer:
                         y_pred[:, sim_idx] = sim_x[:, -1]
 
                     self.train_discriminator(y[:,:self.history_length,:], y_pred.detach()[:,:self.history_length,:])
+                    print("expert judge: ", self.discriminator(y[:, :self.history_length, :]).mean(), "model judge: ",
+                          self.discriminator(y_pred.detach()[:, :self.history_length, :]).mean())
+                    print("expert reward: ", self.get_reward(y[:, :self.history_length, :]).mean(), "model reward: ",
+                          self.get_reward(y_pred.detach()[:, :self.history_length, :]).mean())
+
 
                     # Policy training
                     model.train()
@@ -88,6 +93,8 @@ class GailActorCriticTrainer:
                             delta = reward + self.gamma * model.v(sim_x) - cur_v
                             loss = -prob * delta.detach() + torch.abs(delta)
                             losses.append(loss)
+                        if sim_idx == 0 or sim_idx == self.history_length-1:
+                            print(reward.mean())
                     self.train_policy_value_net(model, losses)
 
                     if batch_idx == 0 and loader_idx == 0:

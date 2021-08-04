@@ -18,7 +18,7 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-f", "--source_file", type=str, nargs='+',
-                    help="<Mandatory (or -d)> field test data source files (list seperated by spaces)", default=["data/ver1_fixed_interval/ver1_ft_60_30.csv", "data/ver1_fixed_interval/ver1_ft_60_40.csv"])
+                    help="<Mandatory (or -d)> field test data source files (list seperated by spaces)", default=["data/ver1_fixed_interval/ver1_ft_60_30.csv"])#, "data/ver1_fixed_interval/ver1_ft_60_40.csv"])
 parser.add_argument("-d", "--source_directory", type=str,
                     help="<Mandatory (or -f)> filed test data directory (It will read only *.csv files.)", default=None)
 possible_mode = ["bc_1tick_noDagger", "bc_1tick_Dagger", "bc_episode", "gail"]
@@ -38,7 +38,7 @@ possible_distance_metric = ['ed', 'wed', 'md', 'wmd', 'dtw']
 parser.add_argument("-dm", "--distance_metric", type=str,
                     help="history distance metric among "+str(possible_distance_metric)+" (default: dtw)", default='dtw')
 parser.add_argument("-el", "--episode_length", type=int,
-                    help="episode length (default: same with history length)", default=100)
+                    help="episode length (default: same with history length)", default=400)
 parser.add_argument("-ms", "--manual_seed", type=int,
                     help="manual seed (default: random seed)", default=None)
 parser.add_argument("-er", "--experiment_repeat", type=int,
@@ -48,7 +48,7 @@ parser.add_argument("-els", "--episode_loss", type=str,
                     help="episode loss function among "+str(possible_episode_loss)+"(default: mse)", default='mdtw')
 possible_algorithms = ['reinforce', 'actor_critic', 'ppo', 'bc_ppo']
 parser.add_argument("-algo", "--optimization_algorithm", type=str,
-                    help="optimization algorithm among "+str(possible_mode)+" (default: actor_critic)", default='bc_ppo')
+                    help="optimization algorithm among "+str(possible_mode)+" (default: actor_critic)", default='reinforce')
 
 args = parser.parse_args()
 
@@ -191,7 +191,7 @@ for e in range(experiment_repeat):
     num_layers = 2
     output_dim = 1
     #model = LineTracerEnvironmentModelGRU(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, num_layers=num_layers, device=device)
-    model = LineTracerEnvironmentModelDNN(input_dim=input_dim*history_length, hidden_dim=hidden_dim, output_dim=output_dim, num_layers=num_layers, device=device)
+    model = LineTracerEnvironmentModelDNN(input_dim=input_dim*history_length, hidden_dim=hidden_dim, output_dim=output_dim, device=device)
     model.to(device=device)
     print("--environment model summary:", model)
 

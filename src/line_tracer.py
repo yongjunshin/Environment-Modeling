@@ -62,3 +62,5 @@ class LineTracerVer1:
 
         return normalized_turning_ratio
 
+    def get_normalizer(self):
+        return self.normalizer

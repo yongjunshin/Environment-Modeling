@@ -35,10 +35,9 @@ import torch.nn.functional as F
 
 
 class LineTracerEnvironmentModelDNN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device):
+    def __init__(self, input_dim, hidden_dim, output_dim, device):
         super(LineTracerEnvironmentModelDNN, self).__init__()
         self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
 
         self.fc1 = nn.Linear(input_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, output_dim)
@@ -57,6 +56,7 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
         out = F.relu(self.fc1(x))
         out = self.fc2(out)
+        out = torch.tanh(out)
         return out
 
     def get_distribution(self, x):
@@ -67,7 +67,7 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
         out = F.relu(self.fc1(x))
-        mu = self.fc2(out)
+        mu = torch.tanh(self.fc2(out))
 
         sigma = torch.sigmoid(self.fc_std(out)) * 0.1
 

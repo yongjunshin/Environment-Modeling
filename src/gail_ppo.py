@@ -16,19 +16,19 @@ class GailPPOTrainer:
         self.sut = sut
         self.discriminator = Discriminator((state_dim + action_dim) * history_length).to(device=self.device)
 
-        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.001)
+        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.01)
 
-        self.disc_iter = 2
+        self.disc_iter = 4
         self.disc_loss = nn.MSELoss()
 
-        self.ppo_iter = 5
+        self.ppo_iter = 4
 
-        self.gamma = 0.98
+        self.gamma = 0.99
         self.lmbda = 0.95
         self.eps_clip = 0.2
 
     def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list):
-        self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=0.001)
+        self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=0.0001)
 
         num_batch = sum([len(dl) for dl in train_dataloaders])
         for i in tqdm(range(epochs), desc="Epochs:"):
@@ -41,7 +41,7 @@ class GailPPOTrainer:
 
                     y_pred = torch.zeros(y.shape, device=self.device)
                     sim_x = x
-                    for sim_idx in range(y.shape[1]):
+                    for sim_idx in range(self.history_length):
                         # action choice
                         action_distribution = model.get_distribution(sim_x)
                         action = action_distribution.sample().detach()
@@ -76,14 +76,14 @@ class GailPPOTrainer:
 
                         # action choice
                         action_distribution = model.get_distribution(sim_x)
-                        if sim_idx < self.history_length:
-                            states.append(sim_x)
+                        #if sim_idx < self.history_length:
+                        states.append(sim_x)
                         action = action_distribution.sample().detach()
-                        if sim_idx < self.history_length:
-                            actions.append(action)
+                        #if sim_idx < self.history_length:
+                        actions.append(action)
                         prob = action_distribution.log_prob(action)
-                        if sim_idx < self.history_length:
-                            probs.append(prob)
+                        #if sim_idx < self.history_length:
+                        probs.append(prob)
 
                         # state transition
                         sys_operations = self.sut.act_sequential(action.cpu().numpy())
@@ -93,13 +93,15 @@ class GailPPOTrainer:
                         sim_x = sim_x[:, 1:]
                         sim_x = torch.cat((sim_x, next_x), dim=1)
                         y_pred[:, sim_idx] = sim_x[:, -1]
-                        if sim_idx < self.history_length:
-                            states_prime.append(sim_x)
+                        #if sim_idx < self.history_length:
+                        states_prime.append(sim_x)
 
                         # get reward
                         reward = self.get_reward(sim_x).detach()
-                        if sim_idx < self.history_length:
-                            rewards.append(reward)
+                        #if sim_idx < self.history_length:
+                        rewards.append(reward)
+                        if sim_idx== 0:
+                            print("epoch reward mean", reward.mean())
 
                         target = reward + self.gamma * model.v(sim_x)
                         targets.append(target.detach())

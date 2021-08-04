@@ -12,23 +12,26 @@ class BCGailPPOTrainer:
         self.action_dim = action_dim
         self.history_length = history_length
 
+        self.bc_loss_fn = torch.nn.MSELoss()
+
         self.device = device
         self.sut = sut
         self.discriminator = Discriminator((state_dim + action_dim) * history_length).to(device=self.device)
 
         self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.001)
 
-        self.disc_iter = 2
+        self.disc_iter = 4
         self.disc_loss = nn.MSELoss()
 
-        self.ppo_iter = 5
+        self.ppo_iter = 3
 
-        self.gamma = 0.98
+        self.gamma = 0.99
         self.lmbda = 0.95
         self.eps_clip = 0.2
 
     def train(self, model: torch.nn.Module, epochs: int, train_dataloaders: list, validation_dataloaders: list):
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=0.001)
+
 
         num_batch = sum([len(dl) for dl in train_dataloaders])
         for i in tqdm(range(epochs), desc="Epochs:"):
@@ -41,7 +44,7 @@ class BCGailPPOTrainer:
 
                     y_pred = torch.zeros(y.shape, device=self.device)
                     sim_x = x
-                    for sim_idx in range(y.shape[1]):
+                    for sim_idx in range(self.history_length):
                         # action choice
                         action_distribution = model.get_distribution(sim_x)
                         action = action_distribution.sample().detach()
@@ -62,8 +65,10 @@ class BCGailPPOTrainer:
                     self.discriminator.eval()
 
                     bc_dist = model.get_distribution(x)
-                    target_y = y[:, 0, [0]]
-                    bc_loss = -bc_dist.log_prob(target_y)
+                    y_pred = model(x)
+                    bc_target_y = y[:, 0, [0]]
+                    bc_loss = -bc_dist.log_prob(bc_target_y)
+                    #bc_loss = self.bc_loss_fn(y_pred, bc_target_y)
                     self.optimiser_pi.zero_grad()
                     bc_loss.mean().backward()
                     self.optimiser_pi.step()
@@ -120,8 +125,8 @@ class BCGailPPOTrainer:
                         plt.plot(y_pred[0, :, [0]].cpu().detach().numpy(), label="y_pred")
                         plt.plot(y[0, :, [0]].cpu().detach().numpy(), label="y")
                         plt.legend()
-                        #plt.show()
-                        plt.savefig('output/imgs/bc_gail_ppo/fig' + str(i) + '.png', dpi=300)
+                        plt.show()
+                        #plt.savefig('output/imgs/bc_gail_ppo/fig' + str(i) + '.png', dpi=300)
                 loader_idx = loader_idx + 1
 
     def train_discriminator(self, exp_trajectory, pi_trajectory):
@@ -181,7 +186,7 @@ class BCGailPPOTrainer:
             surr2 = torch.clamp(ratio, 1-self.eps_clip, 1+self.eps_clip) * advantage_list
             loss_clip = -torch.min(surr1, surr2)
             loss_value = F.smooth_l1_loss(td_target, v)
-            loss = loss_clip + loss_value
+            loss =  loss_clip + loss_value
 
             self.optimiser_pi.zero_grad()
             loss.mean().backward()
