@@ -24,9 +24,9 @@ class GailACTrainer:
         self.sut = sut
         self.discriminator = Discriminator(state_dim * history_length + action_dim).to(device=self.device)
 
-        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.001)
+        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.01)
 
-        self.disc_iter = 1
+        self.disc_iter = 10
         self.disc_loss = nn.MSELoss()
 
         self.gamma = 0.99
@@ -35,8 +35,8 @@ class GailACTrainer:
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
-        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=516, shuffle=True)
-        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=516, shuffle=True)
+        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=512, shuffle=True)
+        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
 
         # initial model
         evaluation_results.append(simulation_and_comparison(model, self.sut, testing_dl, self.device))
@@ -121,7 +121,7 @@ class GailACTrainer:
         return evaluation_results
 
     def train_discriminator(self, exp_state, exp_action, pi_states, pi_actions):
-        index_list = list(range(len(exp_state)))
+        index_list = list(range(len(pi_states)))
         random.shuffle(index_list)
         index_list = index_list[:len(exp_state)]
         pi_states = pi_states[index_list]
@@ -158,6 +158,8 @@ class GailACTrainer:
     def get_reward(self, state, action):
         reward = self.discriminator.forward(state, action)
         reward = -reward.log()
+        reward = torch.nan_to_num(reward)
+        reward = torch.tanh(reward)  # 되나?
         return reward.detach()
 
 
@@ -166,16 +168,19 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.input_dim = input_dim
 
-        self.model = nn.Sequential(
-            nn.Linear(self.input_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-            nn.Sigmoid()
-        )
+        self.fc1 = nn.Linear(self.input_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 1)
 
     def forward(self, state, action):
         state = torch.reshape(state, (state.shape[0], state.shape[1] * state.shape[2]))
         input = torch.cat([state, action], dim=1)
-        return self.model(input)
+
+        out = torch.nan_to_num(self.fc1(input))
+        out = torch.relu(out)
+        out = torch.nan_to_num(self.fc2(out))
+        out = torch.relu(out)
+        out = torch.nan_to_num(self.fc3(out))
+        out = torch.sigmoid(out)
+
+        return out

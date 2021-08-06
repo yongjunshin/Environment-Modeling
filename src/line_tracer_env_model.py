@@ -54,8 +54,8 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         :return: action
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
-        out = F.relu(self.fc1(x))
-        out = self.fc2(out)
+        out = torch.tanh(torch.nan_to_num(self.fc1(x)))
+        out = torch.nan_to_num(self.fc2(out))
         out = torch.tanh(out)
         return out
 
@@ -66,11 +66,16 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         :return: distribution
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
-        out = F.relu(self.fc1(x))
-        mu = torch.tanh(self.fc2(out))
+        out = torch.tanh(torch.nan_to_num(self.fc1(x)))
 
-        sigma = torch.sigmoid(self.fc_std(out)) * 0.1
+        mu = torch.tanh(torch.nan_to_num(self.fc2(out)))
 
+        sigma = torch.sigmoid(torch.nan_to_num(self.fc_std(out))) * 0.1
+
+        if torch.isnan(mu).any() or torch.isnan(sigma).any():
+            print(out)
+            print(mu)
+            print(sigma)
         dist = Normal(mu, sigma)
         return dist
 
@@ -92,7 +97,8 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         :return: value
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
-        out = F.relu(self.fc1(x))
-        v = self.fc_v(out)
+        out = torch.tanh(torch.nan_to_num(self.fc1(x)))
+        v = torch.nan_to_num(self.fc_v(out))
+        v = torch.tanh(v)
         return v
 

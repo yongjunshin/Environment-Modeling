@@ -64,15 +64,15 @@ def batch_dynamic_time_warping(batch1, batch2):
     return diffs
 
 
-grey_underbound = 30
-grey_upperboudn = 50
+grey_underbound = 32
+grey_upperbound = 53
 
 def batch_time_length_on_line_border_comparison(batch1, batch2, normalizer, device):
     unnormalized_underbound = grey_underbound
     normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
 
-    unnormalized_upperbound = grey_upperboudn
+    unnormalized_upperbound = grey_upperbound
     normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0]]))[0, 0]
     normalized_upperbound = torch.tensor([normalized_upperbound], device=device)
 
@@ -99,9 +99,12 @@ def batch_time_length_on_line_border_comparison(batch1, batch2, normalizer, devi
     mean_length_batch1 = length_sum_batch1 / count_batch1
     mean_length_batch2 = length_sum_batch2 / count_batch2
     mean_diffs = torch.abs(mean_length_batch1 - mean_length_batch2)
+    #print(mean_length_batch1[0])
 
-    batch1_length_hist = batch_histogram(batch1_length_mask, count_batch1, 1, 400, 400, device)
-    batch2_length_hist = batch_histogram(batch2_length_mask, count_batch2, 1, 400, 400, device)
+
+    batch1_length_hist = batch_histogram(batch1_length_mask, count_batch1, 1, 401, 400, device)
+    batch2_length_hist = batch_histogram(batch2_length_mask, count_batch2, 1, 401, 400, device)
+    #print(batch1_length_hist[0])
 
     jsd_diff = batch_JSD(batch1_length_hist, batch2_length_hist, device)
     return mean_diffs, jsd_diff
@@ -112,7 +115,7 @@ def batch_time_length_outside_line_border_comparison(batch1, batch2, normalizer,
     normalized_upperbound1 = normalizer.transform(np.array([[unnormalized_upperbound1, 0]]))[0, 0]
     normalized_upperbound1 = torch.tensor([normalized_upperbound1], device=device)
 
-    unnormalized_underbound2 = grey_upperboudn
+    unnormalized_underbound2 = grey_upperbound
     normalized_underbound2 = normalizer.transform(np.array([[unnormalized_underbound2, 0]]))[0, 0]
     normalized_underbound2 = torch.tensor([normalized_underbound2], device=device)
 
@@ -150,8 +153,8 @@ def batch_time_length_outside_line_border_comparison(batch1, batch2, normalizer,
     mean_length_batch2 = length_sum_batch2 / count_batch2
     mean_diffs = torch.abs(mean_length_batch1 - mean_length_batch2)
 
-    batch1_length_hist = batch_histogram(batch1_length_mask, count_batch1, 1, 400, 400, device)
-    batch2_length_hist = batch_histogram(batch2_length_mask, count_batch2, 1, 400, 400, device)
+    batch1_length_hist = batch_histogram(batch1_length_mask, count_batch1, 1, 401, 400, device)
+    batch2_length_hist = batch_histogram(batch2_length_mask, count_batch2, 1, 401, 400, device)
 
     jsd_diff = batch_JSD(batch1_length_hist, batch2_length_hist, device)
 
@@ -163,7 +166,7 @@ def batch_amplitude_comparison(batch1, batch2, normalizer, device):
     normalized_upperbound1 = normalizer.transform(np.array([[unnormalized_upperbound1, 0]]))[0, 0]
     normalized_upperbound1 = torch.tensor([normalized_upperbound1], device=device)
 
-    unnormalized_underbound2 = grey_upperboudn
+    unnormalized_underbound2 = grey_upperbound
     normalized_underbound2 = normalizer.transform(np.array([[unnormalized_underbound2, 0]]))[0, 0]
     normalized_underbound2 = torch.tensor([normalized_underbound2], device=device)
 
@@ -285,25 +288,22 @@ def batch_histogram(batch, batch_count, min, max, num_item, device):
     return batch_hist
 
 
-def batch_KLD(ref_batch, target_batch, device):
-    batch_kld = torch.zeros_like(ref_batch)
+def batch_KLD(target_batch, ref_batch, device):
+    batch_kld = torch.zeros_like(target_batch)
 
     true_mask_value = torch.tensor([1.], device=device)
     false_mask_value = torch.tensor([0.], device=device)
     zero = torch.tensor([0.], device=device)
-    zeros = torch.zeros_like(ref_batch[:, 0], device=device)
+    zeros = torch.zeros_like(target_batch[:, 0], device=device)
 
     magic_number_for_div0 = 0.0000001
-    for i in range(ref_batch.shape[1]):
-        ref_zero_check = torch.where(ref_batch[:, i] <= zero, true_mask_value, false_mask_value)
-        ref_positive_check = torch.where(ref_batch[:, i] > zero, true_mask_value, false_mask_value)
+    for i in range(target_batch.shape[1]):
+        ref_zero_check = torch.where(target_batch[:, i] <= zero, true_mask_value, false_mask_value)
+        ref_positive_check = torch.where(target_batch[:, i] > zero, true_mask_value, false_mask_value)
 
-        kld_value = torch.log(ref_batch[:, i] / (target_batch[:, i] + magic_number_for_div0))
-        # neg_inf_check = torch.where(kld_value == -float('inf'), true_mask_value, false_mask_value)
-        # normal_check = torch.where(kld_value != -float('inf'), true_mask_value, false_mask_value)
-        # kld_value = neg_inf_check * (torch.ones_like(kld_value) * magic_num_for_negative_inf) + normal_check * kld_value
+        kld_value = torch.log(target_batch[:, i] / (ref_batch[:, i] + magic_number_for_div0))
         kld_value = torch.nan_to_num(kld_value)
-        kld_value = kld_value * ref_batch[:, i]
+        kld_value = kld_value * target_batch[:, i]
         batch_kld[:, i] = ref_zero_check * zeros + ref_positive_check * kld_value
 
     batch_kld = torch.sum(batch_kld, dim=(1, 2))
@@ -362,4 +362,6 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     amplitude_diff_mean = amplitude_diff_sum / num_data
     amplitude_jsd_diff_mean = amplitude_jsd_diff_sum / num_data
 
-    return [ed_mean.item(), dtw_mean.item(), time_on_border_diff_mean.item(), time_outside_border_diff_mean.item(), amplitude_diff_mean.item(), time_on_border_jsd_diff_mean.item(), time_outside_border_jsd_diff_mean.item(), amplitude_jsd_diff_mean.item()]    # [ed_mean, dtw_mean, time_on_border_diff_mean, time_outside_border_diff_mean, amplitude_diff_mean, time_on_border_jsd_diff_mean, time_outside_border_jsd_diff_mean, amplitude_jsd_diff_mean]
+    report = [ed_mean.item(), dtw_mean.item(), time_on_border_diff_mean.item(), time_outside_border_diff_mean.item(), amplitude_diff_mean.item(), time_on_border_jsd_diff_mean.item(), time_outside_border_jsd_diff_mean.item(), amplitude_jsd_diff_mean.item()]
+    print(report)
+    return report   # [ed_mean, dtw_mean, time_on_border_diff_mean, time_outside_border_diff_mean, amplitude_diff_mean, time_on_border_jsd_diff_mean, time_outside_border_jsd_diff_mean, amplitude_jsd_diff_mean]

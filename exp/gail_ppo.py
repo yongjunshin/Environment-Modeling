@@ -23,12 +23,12 @@ class GailPPOTrainer:
         self.sut = sut
         self.discriminator = Discriminator(state_dim * history_length + action_dim).to(device=self.device)
 
-        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.001)
+        self.optimiser_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.01)
 
-        self.disc_iter = 1
+        self.disc_iter = 10
         self.disc_loss = nn.MSELoss()
 
-        self.ppo_iter = 4
+        self.ppo_iter = 10
 
         self.gamma = 0.99
         self.lmbda = 0.95
@@ -38,8 +38,8 @@ class GailPPOTrainer:
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
-        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=516, shuffle=True)
-        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=516, shuffle=True)
+        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=512, shuffle=True)
+        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
 
         # initial model
         evaluation_results.append(simulation_and_comparison(model, self.sut, testing_dl, self.device))
@@ -72,12 +72,19 @@ class GailPPOTrainer:
 
                 pi_states = torch.cat(pi_states)
                 pi_actions = torch.cat(pi_actions)
-                # if batch_idx == 0:
-                #     print("expert judge: ", self.discriminator(x_batch, y_batch[:, 0, [0]]).mean(), "model judge: ",
-                #           self.discriminator(pi_states, pi_actions).mean())
-                #     print("expert reward: ", self.get_reward(x_batch, y_batch[:, 0, [0]]).mean(), "model reward: ",
-                #           self.get_reward(pi_states, pi_actions).mean())
+                if batch_idx == 0:
+                    print("before D learn")
+                    print("expert judge: ", self.discriminator(x_batch, y_batch[:, 0, [0]]).mean(), "model judge: ",
+                          self.discriminator(pi_states, pi_actions).mean())
+                    print("expert reward: ", self.get_reward(x_batch, y_batch[:, 0, [0]]).mean(), "model reward: ",
+                          self.get_reward(pi_states, pi_actions).mean())
                 self.train_discriminator(x_batch, y_batch[:, 0, [0]], pi_states, pi_actions)
+                if batch_idx == 0:
+                    print("after D learn")
+                    print("expert judge: ", self.discriminator(x_batch, y_batch[:, 0, [0]]).mean(), "model judge: ",
+                          self.discriminator(pi_states, pi_actions).mean())
+                    print("expert reward: ", self.get_reward(x_batch, y_batch[:, 0, [0]]).mean(), "model reward: ",
+                          self.get_reward(pi_states, pi_actions).mean())
 
                 # Policy training
                 model.train()
@@ -127,7 +134,7 @@ class GailPPOTrainer:
         return evaluation_results
 
     def train_discriminator(self, exp_state, exp_action, pi_states, pi_actions):
-        index_list = list(range(len(exp_state)))
+        index_list = list(range(len(pi_states)))
         random.shuffle(index_list)
         index_list = index_list[:len(exp_state)]
         pi_states = pi_states[index_list]
@@ -150,7 +157,7 @@ class GailPPOTrainer:
 
             self.optimiser_d.zero_grad()
             loss.backward()
-            #print(loss)
+            print("disc loss", loss)
             self.optimiser_d.step()
         # print("loss: ", l)
 
@@ -189,10 +196,12 @@ class GailPPOTrainer:
             advantage_list = torch.stack(advantage_list)
             advantage_list = torch.reshape(advantage_list, (advantage_list.shape[0] * advantage_list.shape[1], 1))
 
+
             # calculating action probability ratio
             cur_distribution = model.get_distribution(t_states)
             cur_probs = cur_distribution.log_prob(t_actions)
             ratio = torch.exp(cur_probs - probs)
+
             #print("advantage:", advantage_list.mean())
             surr1 = ratio * advantage_list
             surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage_list
@@ -200,6 +209,13 @@ class GailPPOTrainer:
             loss_value = F.smooth_l1_loss(td_target, v)
             loss = loss_clip + loss_value
 
+            if torch.isnan(loss).any():
+                print(loss)
+                None
+
+
+
+            print("policy loss", loss.mean())
             self.optimiser_pi.zero_grad()
             loss.mean().backward()
             self.optimiser_pi.step()
@@ -207,6 +223,8 @@ class GailPPOTrainer:
     def get_reward(self, state, action):
         reward = self.discriminator.forward(state, action)
         reward = -reward.log()
+        reward = torch.nan_to_num(reward)
+        reward = torch.tanh(reward) #되나?
         return reward.detach()
 
 
@@ -215,16 +233,19 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.input_dim = input_dim
 
-        self.model = nn.Sequential(
-            nn.Linear(self.input_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-            nn.Sigmoid()
-        )
+        self.fc1 = nn.Linear(self.input_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 1)
 
     def forward(self, state, action):
         state = torch.reshape(state, (state.shape[0], state.shape[1] * state.shape[2]))
         input = torch.cat([state, action], dim=1)
-        return self.model(input)
+
+        out = torch.nan_to_num(self.fc1(input))
+        out = torch.relu(out)
+        out = torch.nan_to_num(self.fc2(out))
+        out = torch.relu(out)
+        out = torch.nan_to_num(self.fc3(out))
+        out = torch.sigmoid(out)
+
+        return out

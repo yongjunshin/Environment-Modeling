@@ -17,8 +17,8 @@ class BehaviorCloning1TickStochasticTrainer:
         optimiser = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
-        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=516, shuffle=True)
-        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=516, shuffle=True)
+        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=512, shuffle=True)
+        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
 
         # initial model
         evaluation_results.append(simulation_and_comparison(model, self.sut, testing_dl, self.device))

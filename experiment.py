@@ -29,8 +29,8 @@ shuffle = True
 training_testing_ratio = 0.7
 data_volume_for_model_training_ratio = 0.5
 
-algorithms = ['gail_ppo', 'bc', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce',  'bc_gail_ppo']
-max_epoch = 50
+algorithms = ['gail_ppo', 'bc', 'bc_gail_ppo', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce']
+max_epoch = 20
 
 num_simulation_repeat = 3
 
@@ -79,16 +79,8 @@ def data_preprocessing(log_dataset, state_length, episode_length, training_testi
     return x_train_tensor, y_train_tensor, x_testing_tensor, y_testing_tensor
 
 
-def environment_model_generation(sut, device, algorithm, training_dataset_x, training_dataset_y, max_epopch, testing_dataset_x, testing_dataset_y):
-    input_length = training_dataset_x.shape[1]
-    input_feature = training_dataset_x.shape[2]
-    hidden_dim = 256
-    output_dim = 1
-
-    env_model = LineTracerEnvironmentModelDNN(input_dim=input_length*input_feature, hidden_dim=hidden_dim, output_dim=output_dim, device=device)
-    env_model.to(device)
-
-    learning_rate = 0.0001
+def environment_model_generation(env_model, sut, device, algorithm, training_dataset_x, training_dataset_y, max_epopch, testing_dataset_x, testing_dataset_y):
+    learning_rate = 0.00005
     if algorithm == 'bc':
         trainer = BehaviorCloning1TickTrainer(device=device, sut=sut, lr=learning_rate)
     elif algorithm == 'bc_stochastic':
@@ -200,10 +192,19 @@ random_dtw = batch_dynamic_time_warping(sim_result[:, :, [0]], testing_dataset_y
 testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=True)
 random_result = simulation_and_comparison(random_model, line_tracer, testing_dl, device)
 
+
+input_length = training_dataset_x.shape[1]
+input_feature = training_dataset_x.shape[2]
+hidden_dim = 256
+output_dim = 1
+initial_env_model = LineTracerEnvironmentModelDNN(input_dim=input_length*input_feature, hidden_dim=hidden_dim, output_dim=output_dim, device=device)
+initial_env_model.to(device)
+
 evaluation_results_for_each_algo = []
 for algo in algorithms:
     print(algo)
-    evaluation_results = environment_model_generation(line_tracer, device, algo, training_dataset_x, training_dataset_y, max_epoch, testing_dataset_x, testing_dataset_y)
+    env_model = copy.deepcopy(initial_env_model)
+    evaluation_results = environment_model_generation(env_model, line_tracer, device, algo, training_dataset_x, training_dataset_y, max_epoch, testing_dataset_x, testing_dataset_y)
     evaluation_results_for_each_algo.append(evaluation_results)
     print()
 
