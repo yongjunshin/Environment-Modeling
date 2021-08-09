@@ -4,10 +4,10 @@ import numpy as np
 from src.soft_dtw_cuda import SoftDTW
 
 
-def simulate_deterministic(env_model, sut, sim_length, initial_state_batch, device):
-    sim_result = torch.zeros((initial_state_batch.shape[0], sim_length, initial_state_batch.shape[2]),
+def simulate_deterministic(env_model, sut, sim_length, x_batch, y_batch, device):
+    sim_result = torch.zeros((x_batch.shape[0], sim_length, x_batch.shape[2]),
                              device=device)
-    sim_x = initial_state_batch
+    sim_x = x_batch
 
     env_model.eval()
     for sim_idx in range(sim_length):
@@ -19,6 +19,8 @@ def simulate_deterministic(env_model, sut, sim_length, initial_state_batch, devi
         sys_operations = torch.tensor(sys_operations).to(device=device).type(torch.float32)
         next_x = torch.cat((action, sys_operations), dim=1)
         next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
+        time_col = torch.reshape(y_batch[:, sim_idx, 2], (next_x.shape[0], 1, 1))
+        next_x = torch.cat((next_x, time_col), dim=2)
         sim_x = sim_x[:, 1:]
         sim_x = torch.cat((sim_x, next_x), dim=1)
         sim_result[:, sim_idx] = sim_x[:, -1]
@@ -69,11 +71,11 @@ gray_upperbound = 49
 
 def batch_time_length_on_line_border_comparison(batch1, batch2, normalizer, device):
     unnormalized_underbound = gray_underbound
-    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
+    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
 
     unnormalized_upperbound = gray_upperbound
-    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0]]))[0, 0]
+    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0, 0]]))[0, 0]
     normalized_upperbound = torch.tensor([normalized_upperbound], device=device)
 
     true_mask_value = torch.tensor([1.], device=device)
@@ -134,11 +136,11 @@ def batch_time_length_on_line_border_comparison(batch1, batch2, normalizer, devi
 
 def batch_time_length_outside_line_border_comparison(batch1, batch2, normalizer, device):
     unnormalized_underbound = gray_underbound
-    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
+    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
 
     unnormalized_upperbound = gray_upperbound
-    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0]]))[0, 0]
+    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0, 0]]))[0, 0]
     normalized_upperbound = torch.tensor([normalized_upperbound], device=device)
 
     true_mask_value = torch.tensor([1.], device=device)
@@ -206,11 +208,11 @@ def batch_time_length_outside_line_border_comparison(batch1, batch2, normalizer,
 
 def batch_amplitude_comparison(batch1, batch2, normalizer, device):
     unnormalized_underbound = gray_underbound
-    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
+    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
 
     unnormalized_upperbound = gray_upperbound
-    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0]]))[0, 0]
+    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0, 0]]))[0, 0]
     normalized_upperbound = torch.tensor([normalized_upperbound], device=device)
 
     true_mask_value = torch.tensor([1.], device=device)
@@ -413,7 +415,7 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     amplitude_jsd_diff_sum = torch.zeros((), device=device)
 
     for _, (x_batch, y_batch) in enumerate(testing_dataloader):
-        sim_result = simulate_deterministic(model, sut, y_batch.shape[1], x_batch, device)
+        sim_result = simulate_deterministic(model, sut, y_batch.shape[1], x_batch, y_batch, device)
         euclidean_distances = batch_euclidean_distance(sim_result[:, :, [0]], y_batch[:, :, [0]])
         dtws = batch_dynamic_time_warping(sim_result[:, :, [0]], y_batch[:, :, [0]])
         mean_diff_of_time_on_border, jsd_diff_of_time_on_border = batch_time_length_on_line_border_comparison(sim_result[:, :, [0]], y_batch[:, :, [0]], sut.get_normalizer(), device)

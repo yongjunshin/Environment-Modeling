@@ -44,9 +44,9 @@ def read_log_file(log_files):
     raw_dfs = []
     for file in log_files:
         df = pd.read_csv(file)
-        diffTime = df[1:]['time'].to_numpy() - df[:-1]['time'].to_numpy()
+        diff_time = df[1:]['time'].to_numpy() - df[:-1]['time'].to_numpy()
         df = df[:-1]
-        df["diffTime"] = diffTime
+        df["diffTime"] = diff_time
         df = df.drop('time', axis=1)
         raw_dfs.append(df)
 
@@ -191,7 +191,7 @@ line_tracer = LineTracerVer1(scaler)
 
 random_model = LineTracerRandomEnvironmentModelDNN(device)
 random_model.to(device)
-sim_result = simulate_deterministic(random_model, line_tracer, testing_dataset_y.shape[1], testing_dataset_x, device)
+sim_result = simulate_deterministic(random_model, line_tracer, testing_dataset_y.shape[1], testing_dataset_x, testing_dataset_y, device)
 random_ed = batch_euclidean_distance(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
 random_dtw = batch_dynamic_time_warping(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
 testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=True)

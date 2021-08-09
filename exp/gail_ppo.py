@@ -67,6 +67,8 @@ class GailPPOTrainer:
                     sys_operations = torch.tensor(sys_operations).to(device=self.device).type(torch.float32)
                     next_x = torch.cat((action, sys_operations), dim=1)
                     next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
+                    time_col = torch.reshape(y_batch[:, sim_idx, 2], (next_x.shape[0], 1, 1))
+                    next_x = torch.cat((next_x, time_col), dim=2)
                     sim_x = sim_x[:, 1:]
                     sim_x = torch.cat((sim_x, next_x), dim=1)
 
@@ -117,6 +119,8 @@ class GailPPOTrainer:
                     sys_operations = torch.tensor(sys_operations).to(device=self.device).type(torch.float32)
                     next_x = torch.cat((action, sys_operations), dim=1)
                     next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
+                    time_col = torch.reshape(y_batch[:, sim_idx, 2], (next_x.shape[0], 1, 1))
+                    next_x = torch.cat((next_x, time_col), dim=2)
                     sim_x = sim_x[:, 1:]
                     sim_x = torch.cat((sim_x, next_x), dim=1)
                     y_pred[:, sim_idx] = sim_x[:, -1]
