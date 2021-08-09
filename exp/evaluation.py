@@ -64,127 +64,170 @@ def batch_dynamic_time_warping(batch1, batch2):
     return diffs
 
 
-grey_underbound = 32
-grey_upperbound = 53
+gray_underbound = 35
+gray_upperbound = 49
 
 def batch_time_length_on_line_border_comparison(batch1, batch2, normalizer, device):
-    unnormalized_underbound = grey_underbound
+    unnormalized_underbound = gray_underbound
     normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
 
-    unnormalized_upperbound = grey_upperbound
+    unnormalized_upperbound = gray_upperbound
     normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0]]))[0, 0]
     normalized_upperbound = torch.tensor([normalized_upperbound], device=device)
 
     true_mask_value = torch.tensor([1.], device=device)
     false_mask_value = torch.tensor([0.], device=device)
 
-    batch1_mask = masking_min_max(batch1, normalized_underbound, normalized_upperbound, true_mask_value, false_mask_value)
-    batch2_mask = masking_min_max(batch2, normalized_underbound, normalized_upperbound, true_mask_value, false_mask_value)
+    batch1_undergray_mask = masking_s(batch1, normalized_underbound, true_mask_value, false_mask_value)
+    batch1_uppergray_mask = masking_g(batch1, normalized_upperbound, true_mask_value, false_mask_value)
+    batch2_undergray_mask = masking_s(batch2, normalized_underbound, true_mask_value, false_mask_value)
+    batch2_uppergray_mask = masking_g(batch2, normalized_upperbound, true_mask_value, false_mask_value)
 
-    batch1_length_mask = length_masking(batch1_mask, device)
-    batch2_length_mask = length_masking(batch2_mask, device)
+    batch1_gray_geq_1tick_mask = -(batch1_undergray_mask + batch1_uppergray_mask) + 1
+    batch2_gray_geq_1tick_mask = -(batch2_undergray_mask + batch2_uppergray_mask) + 1
+
+    batch1_gray_0tick_mask = batch1_undergray_mask[:, :-1] * batch1_uppergray_mask[:, 1:] + batch1_undergray_mask[:, 1:] * batch1_uppergray_mask[:, :-1]
+    batch2_gray_0tick_mask = batch2_undergray_mask[:, :-1] * batch2_uppergray_mask[:, 1:] + batch2_undergray_mask[:, 1:] * batch2_uppergray_mask[:, :-1]
+
+    batch1_length_mask = length_masking(batch1_gray_geq_1tick_mask, device)
+    batch2_length_mask = length_masking(batch2_gray_geq_1tick_mask, device)
 
     one = torch.tensor([1.], device=device)
-    maximum = torch.tensor([batch1.shape[1]], device=device)
-    batch1_length_mask_mask = masking_min_max(batch1_length_mask, one, maximum, true_mask_value, false_mask_value)
-    batch2_length_mask_mask = masking_min_max(batch2_length_mask, one, maximum, true_mask_value, false_mask_value)
+    batch1_length_mask_mask = masking_geq(batch1_length_mask, one, true_mask_value, false_mask_value)
+    batch2_length_mask_mask = masking_geq(batch2_length_mask, one, true_mask_value, false_mask_value)
 
     length_sum_batch1 = torch.sum(batch1_length_mask, dim=(1, 2))
     length_sum_batch2 = torch.sum(batch2_length_mask, dim=(1, 2))
 
-    count_batch1 = torch.sum(batch1_length_mask_mask, dim=(1, 2))
-    count_batch2 = torch.sum(batch2_length_mask_mask, dim=(1, 2))
+    count_batch1 = torch.sum(batch1_length_mask_mask, dim=(1, 2)) + torch.sum(batch1_gray_0tick_mask, dim=(1, 2))
+    count_batch2 = torch.sum(batch2_length_mask_mask, dim=(1, 2)) + torch.sum(batch2_gray_0tick_mask, dim=(1, 2))
 
     mean_length_batch1 = length_sum_batch1 / count_batch1
     mean_length_batch2 = length_sum_batch2 / count_batch2
     mean_diffs = torch.abs(mean_length_batch1 - mean_length_batch2)
-    #print(mean_length_batch1[0])
+    # l = 50
+    # print(torch.cat((batch1[0][:l], batch1_undergray_mask[0][:l], batch1_uppergray_mask[0][:l], batch1_gray_geq_1tick_mask[0][:l], batch1_length_mask[0][:l], batch1_gray_0tick_mask[0][:l]), dim=1))
 
 
-    batch1_length_hist = batch_histogram(batch1_length_mask, count_batch1, 1, 401, 400, device)
-    batch2_length_hist = batch_histogram(batch2_length_mask, count_batch2, 1, 401, 400, device)
+    batch1_length_geq_1tick_hist = batch_histogram(batch1_length_mask, count_batch1, 0, 400, 400, device)
+    batch2_length_geq_1tick_hist = batch_histogram(batch2_length_mask, count_batch2, 0, 400, 400, device)
+
+    batch1_length_0tick_hist = torch.sum(batch1_gray_0tick_mask, dim=(1, 2)) / count_batch1
+    batch2_length_0tick_hist = torch.sum(batch2_gray_0tick_mask, dim=(1, 2)) / count_batch2
+    batch1_length_0tick_hist = torch.reshape(batch1_length_0tick_hist, (len(batch1_length_0tick_hist), 1, 1))
+    batch2_length_0tick_hist = torch.reshape(batch2_length_0tick_hist, (len(batch2_length_0tick_hist), 1, 1))
+
+    batch1_length_hist = torch.cat((batch1_length_0tick_hist, batch1_length_geq_1tick_hist), dim=1)
+    batch2_length_hist = torch.cat((batch2_length_0tick_hist, batch2_length_geq_1tick_hist), dim=1)
+    check_sum1 = torch.sum(batch1_length_hist, dim=(1, 2))
+    check_sum2 = torch.sum(batch2_length_hist, dim=(1, 2))
+
     #print(batch1_length_hist[0])
-
+    #
     jsd_diff = batch_JSD(batch1_length_hist, batch2_length_hist, device)
+
+    mean_diffs = avoid_nan_to_avg(mean_diffs, device)
+    jsd_diff = avoid_nan_to_avg(jsd_diff, device)
     return mean_diffs, jsd_diff
 
 
 def batch_time_length_outside_line_border_comparison(batch1, batch2, normalizer, device):
-    unnormalized_upperbound1 = grey_underbound
-    normalized_upperbound1 = normalizer.transform(np.array([[unnormalized_upperbound1, 0]]))[0, 0]
-    normalized_upperbound1 = torch.tensor([normalized_upperbound1], device=device)
+    unnormalized_underbound = gray_underbound
+    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
+    normalized_underbound = torch.tensor([normalized_underbound], device=device)
 
-    unnormalized_underbound2 = grey_upperbound
-    normalized_underbound2 = normalizer.transform(np.array([[unnormalized_underbound2, 0]]))[0, 0]
-    normalized_underbound2 = torch.tensor([normalized_underbound2], device=device)
+    unnormalized_upperbound = gray_upperbound
+    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0]]))[0, 0]
+    normalized_upperbound = torch.tensor([normalized_upperbound], device=device)
 
     true_mask_value = torch.tensor([1.], device=device)
     false_mask_value = torch.tensor([0.], device=device)
 
-    batch1_mask1 = masking_max(batch1, normalized_upperbound1, true_mask_value, false_mask_value)
-    batch1_mask2 = masking_min(batch1, normalized_underbound2, true_mask_value, false_mask_value)
+    batch1_mask1 = masking_s(batch1, normalized_underbound, true_mask_value, false_mask_value)
+    batch1_mask2 = masking_g(batch1, normalized_upperbound, true_mask_value, false_mask_value)
 
-    batch2_mask1 = masking_max(batch2, normalized_upperbound1, true_mask_value, false_mask_value)
-    batch2_mask2 = masking_min(batch2, normalized_underbound2, true_mask_value, false_mask_value)
+    batch2_mask1 = masking_s(batch2, normalized_underbound, true_mask_value, false_mask_value)
+    batch2_mask2 = masking_g(batch2, normalized_upperbound, true_mask_value, false_mask_value)
 
     batch1_length_mask1 = length_masking(batch1_mask1, device)
     batch1_length_mask2 = length_masking(batch1_mask2, device)
     batch2_length_mask1 = length_masking(batch2_mask1, device)
     batch2_length_mask2 = length_masking(batch2_mask2, device)
 
-    batch1_length_mask = batch1_length_mask1 + batch1_length_mask2
-    batch2_length_mask = batch2_length_mask1 + batch2_length_mask2
+    # batch1_length_mask = batch1_length_mask1 + batch1_length_mask2
+    # batch2_length_mask = batch2_length_mask1 + batch2_length_mask2
 
-    zero = torch.tensor([0.], device=device)
-    maximum = torch.tensor([batch1.shape[1]], device=device)
-    batch1_length_mask_mask = masking_min_max(batch1_length_mask, zero, maximum, true_mask_value, false_mask_value)
-    batch2_length_mask_mask = masking_min_max(batch2_length_mask, zero, maximum, true_mask_value, false_mask_value)
+    one = torch.tensor([1.], device=device)
+    batch1_length_mask1_mask = masking_geq(batch1_length_mask1, one, true_mask_value, false_mask_value)
+    batch1_length_mask2_mask = masking_geq(batch1_length_mask2, one, true_mask_value, false_mask_value)
+    batch2_length_mask1_mask = masking_geq(batch2_length_mask1, one, true_mask_value, false_mask_value)
+    batch2_length_mask2_mask = masking_geq(batch2_length_mask2, one, true_mask_value, false_mask_value)
 
-    #print(torch.cat((batch1[0], batch1_mask1[0], batch1_mask2[0], batch1_length_mask1[0], batch1_length_mask2[0], batch1_length_mask[0], batch1_length_mask_mask[0]), dim=1)[:100])
+    # print(torch.cat((batch1[0], batch1_mask1[0], batch1_mask2[0], batch1_length_mask1[0], batch1_length_mask2[0], batch1_length_mask[0], batch1_length_mask_mask[0]), dim=1)[:50])
+    # print(torch.cat((batch2[0], batch2_mask1[0], batch2_mask2[0], batch2_length_mask1[0], batch2_length_mask2[0], batch2_length_mask[0], batch2_length_mask_mask[0]), dim=1)[:50])
 
-    length_sum_batch1 = torch.sum(batch1_length_mask, dim=(1, 2))
-    length_sum_batch2 = torch.sum(batch2_length_mask, dim=(1, 2))
+    length_sum1_batch1 = torch.sum(batch1_length_mask1, dim=(1, 2))
+    length_sum2_batch1 = torch.sum(batch1_length_mask2, dim=(1, 2))
+    length_sum1_batch2 = torch.sum(batch2_length_mask1, dim=(1, 2))
+    length_sum2_batch2 = torch.sum(batch2_length_mask2, dim=(1, 2))
 
-    count_batch1 = torch.sum(batch1_length_mask_mask, dim=(1, 2))
-    count_batch2 = torch.sum(batch2_length_mask_mask, dim=(1, 2))
+    count1_batch1 = torch.sum(batch1_length_mask1_mask, dim=(1, 2))
+    count2_batch1 = torch.sum(batch1_length_mask2_mask, dim=(1, 2))
+    count1_batch2 = torch.sum(batch2_length_mask1_mask, dim=(1, 2))
+    count2_batch2 = torch.sum(batch2_length_mask2_mask, dim=(1, 2))
 
-    mean_length_batch1 = length_sum_batch1 / count_batch1
-    mean_length_batch2 = length_sum_batch2 / count_batch2
-    mean_diffs = torch.abs(mean_length_batch1 - mean_length_batch2)
+    mean_length1_batch1 = length_sum1_batch1 / count1_batch1
+    mean_length2_batch1 = length_sum2_batch1 / count2_batch1
+    mean_length1_batch2 = length_sum1_batch2 / count1_batch2
+    mean_length2_batch2 = length_sum2_batch2 / count2_batch2
 
-    batch1_length_hist = batch_histogram(batch1_length_mask, count_batch1, 1, 401, 400, device)
-    batch2_length_hist = batch_histogram(batch2_length_mask, count_batch2, 1, 401, 400, device)
+    mean_diffs1 = torch.abs(mean_length1_batch1 - mean_length1_batch2)
+    mean_diffs2 = torch.abs(mean_length2_batch1 - mean_length2_batch2)
+    mean_diffs = 0.5 * (mean_diffs1 + mean_diffs2)
 
-    jsd_diff = batch_JSD(batch1_length_hist, batch2_length_hist, device)
+    batch1_length_hist1 = batch_histogram(batch1_length_mask1, count1_batch1, 0, 400, 400, device)
+    batch1_length_hist2 = batch_histogram(batch1_length_mask2, count2_batch1, 0, 400, 400, device)
+    batch2_length_hist1 = batch_histogram(batch2_length_mask1, count1_batch2, 0, 400, 400, device)
+    batch2_length_hist2 = batch_histogram(batch2_length_mask2, count2_batch2, 0, 400, 400, device)
+    check_sum11 = torch.sum(batch1_length_hist1, dim=(1, 2))
+    check_sum12 = torch.sum(batch1_length_hist2, dim=(1, 2))
+    check_sum21 = torch.sum(batch2_length_hist1, dim=(1, 2))
+    check_sum22 = torch.sum(batch2_length_hist2, dim=(1, 2))
 
+    jsd_diff1 = batch_JSD(batch1_length_hist1, batch2_length_hist1, device)
+    jsd_diff2 = batch_JSD(batch1_length_hist2, batch2_length_hist2, device)
+    jsd_diff = 0.5 * (jsd_diff1 + jsd_diff2)
+
+    mean_diffs = avoid_nan_to_avg(mean_diffs, device)
+    jsd_diff = avoid_nan_to_avg(jsd_diff, device)
     return mean_diffs, jsd_diff
 
 
 def batch_amplitude_comparison(batch1, batch2, normalizer, device):
-    unnormalized_upperbound1 = grey_underbound
-    normalized_upperbound1 = normalizer.transform(np.array([[unnormalized_upperbound1, 0]]))[0, 0]
-    normalized_upperbound1 = torch.tensor([normalized_upperbound1], device=device)
+    unnormalized_underbound = gray_underbound
+    normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
+    normalized_underbound = torch.tensor([normalized_underbound], device=device)
 
-    unnormalized_underbound2 = grey_upperbound
-    normalized_underbound2 = normalizer.transform(np.array([[unnormalized_underbound2, 0]]))[0, 0]
-    normalized_underbound2 = torch.tensor([normalized_underbound2], device=device)
+    unnormalized_upperbound = gray_upperbound
+    normalized_upperbound = normalizer.transform(np.array([[unnormalized_upperbound, 0]]))[0, 0]
+    normalized_upperbound = torch.tensor([normalized_upperbound], device=device)
 
     true_mask_value = torch.tensor([1.], device=device)
     false_mask_value = torch.tensor([0.], device=device)
     zero = torch.tensor([0.], device=device)
 
-    batch1_mask1 = masking_max(batch1, normalized_upperbound1, true_mask_value, false_mask_value)
-    batch1_mask2 = masking_min(batch1, normalized_underbound2, true_mask_value, false_mask_value)
+    batch1_mask1 = masking_s(batch1, normalized_underbound, true_mask_value, false_mask_value)
+    batch1_mask2 = masking_g(batch1, normalized_upperbound, true_mask_value, false_mask_value)
 
-    batch2_mask1 = masking_max(batch2, normalized_upperbound1, true_mask_value, false_mask_value)
-    batch2_mask2 = masking_min(batch2, normalized_underbound2, true_mask_value, false_mask_value)
+    batch2_mask1 = masking_s(batch2, normalized_underbound, true_mask_value, false_mask_value)
+    batch2_mask2 = masking_g(batch2, normalized_upperbound, true_mask_value, false_mask_value)
 
-    batch1_amplitude1 = (-1 * (batch1 - normalized_upperbound1)) * batch1_mask1
-    batch1_amplitude2 = (batch1 - normalized_underbound2) * batch1_mask2
+    batch1_amplitude1 = (-1 * (batch1 - normalized_underbound)) * batch1_mask1
+    batch1_amplitude2 = (batch1 - normalized_upperbound) * batch1_mask2
 
-    batch2_amplitude1 = (-1 * (batch2 - normalized_upperbound1)) * batch2_mask1
-    batch2_amplitude2 = (batch2 - normalized_underbound2) * batch2_mask2
+    batch2_amplitude1 = (-1 * (batch2 - normalized_underbound)) * batch2_mask1
+    batch2_amplitude2 = (batch2 - normalized_upperbound) * batch2_mask2
 
     #test
     #test_batch = torch.tensor([[[0.], [0.0976], [0.4634], [0.5610], [0.5366], [0.5366], [0.4390], [0.3171], [0.2683], [0.]]], device=device)
@@ -192,47 +235,85 @@ def batch_amplitude_comparison(batch1, batch2, normalizer, device):
 
     batch1_amplitude1 = max_amplitude(batch1_amplitude1, device)
     batch1_amplitude2 = max_amplitude(batch1_amplitude2, device)
-    batch1_amplitude = batch1_amplitude1 + batch1_amplitude2
-    batch1_amplitude_mask = masking_min(batch1_amplitude, zero, true_mask_value, false_mask_value)
+    #batch1_amplitude = batch1_amplitude1 + batch1_amplitude2
+    batch1_amplitude1_mask = masking_g(batch1_amplitude1, zero, true_mask_value, false_mask_value)
+    batch1_amplitude2_mask = masking_g(batch1_amplitude2, zero, true_mask_value, false_mask_value)
 
     batch2_amplitude1 = max_amplitude(batch2_amplitude1, device)
     batch2_amplitude2 = max_amplitude(batch2_amplitude2, device)
-    batch2_amplitude = batch2_amplitude1 + batch2_amplitude2
-    batch2_amplitude_mask = masking_min(batch2_amplitude, zero, true_mask_value, false_mask_value)
+    batch2_amplitude1_mask = masking_g(batch2_amplitude1, zero, true_mask_value, false_mask_value)
+    batch2_amplitude2_mask = masking_g(batch2_amplitude2, zero, true_mask_value, false_mask_value)
 
-    amplitude_sum_batch1 = torch.sum(batch1_amplitude, dim=(1, 2))
-    amplitude_sum_batch2 = torch.sum(batch2_amplitude, dim=(1, 2))
+    amplitude_sum1_batch1 = torch.sum(batch1_amplitude1, dim=(1, 2))
+    amplitude_sum2_batch1 = torch.sum(batch1_amplitude2, dim=(1, 2))
+    amplitude_sum1_batch2 = torch.sum(batch2_amplitude1, dim=(1, 2))
+    amplitude_sum2_batch2 = torch.sum(batch2_amplitude2, dim=(1, 2))
 
-    count_batch1 = torch.sum(batch1_amplitude_mask, dim=(1, 2))
-    count_batch2 = torch.sum(batch2_amplitude_mask, dim=(1, 2))
+    count1_batch1 = torch.sum(batch1_amplitude1_mask, dim=(1, 2))
+    count2_batch1 = torch.sum(batch1_amplitude2_mask, dim=(1, 2))
+    count1_batch2 = torch.sum(batch2_amplitude1_mask, dim=(1, 2))
+    count2_batch2 = torch.sum(batch2_amplitude2_mask, dim=(1, 2))
 
-    mean_amplitude_batch1 = amplitude_sum_batch1 / count_batch1
-    mean_amplitude_batch2 = amplitude_sum_batch2 / count_batch2
-    mean_diffs = torch.abs(mean_amplitude_batch1 - mean_amplitude_batch2)
+    mean_amplitude1_batch1 = amplitude_sum1_batch1 / count1_batch1
+    mean_amplitude2_batch1 = amplitude_sum2_batch1 / count2_batch1
+    mean_amplitude1_batch2 = amplitude_sum1_batch2 / count1_batch2
+    mean_amplitude2_batch2 = amplitude_sum2_batch2 / count2_batch2
 
-    batch1_amplitude_hist = batch_histogram(batch1_amplitude, count_batch1, 0, 1, 20, device)
-    batch2_amplitude_hist = batch_histogram(batch2_amplitude, count_batch2, 0, 1, 20, device)
+    mean_diffs1 = torch.abs(mean_amplitude1_batch1 - mean_amplitude1_batch2)
+    mean_diffs2 = torch.abs(mean_amplitude2_batch1 - mean_amplitude2_batch2)
+    mean_diffs = 0.5 * (mean_diffs1 + mean_diffs2)
 
-    jsd_diff = batch_JSD(batch1_amplitude_hist, batch2_amplitude_hist, device)
+    batch1_amplitude_hist1 = batch_histogram(batch1_amplitude1, count1_batch1, 0, 2, 40, device)
+    batch1_amplitude_hist2 = batch_histogram(batch1_amplitude2, count2_batch1, 0, 2, 40, device)
+    batch2_amplitude_hist1 = batch_histogram(batch2_amplitude1, count1_batch2, 0, 2, 40, device)
+    batch2_amplitude_hist2 = batch_histogram(batch2_amplitude2, count2_batch2, 0, 2, 40, device)
+    check_sum11 = torch.sum(batch1_amplitude_hist1, dim=(1, 2))
+    check_sum12 = torch.sum(batch1_amplitude_hist2, dim=(1, 2))
+    check_sum21 = torch.sum(batch2_amplitude_hist1, dim=(1, 2))
+    check_sum22 = torch.sum(batch2_amplitude_hist2, dim=(1, 2))
 
+    jsd_diff1 = batch_JSD(batch1_amplitude_hist1, batch2_amplitude_hist1, device)
+    jsd_diff2 = batch_JSD(batch1_amplitude_hist2, batch2_amplitude_hist2, device)
+    jsd_diff = 0.5 * (jsd_diff1 + jsd_diff2)
+
+    mean_diffs = avoid_nan_to_avg(mean_diffs, device)
+    jsd_diff = avoid_nan_to_avg(jsd_diff, device)
     return mean_diffs, jsd_diff
 
 
-def masking_min_max(batch, under_bound, upper_bound, true_mask_value, false_mask_value):
-    under_mask = torch.where(batch >= under_bound, true_mask_value, false_mask_value)
-    upper_mask = torch.where(batch < upper_bound, true_mask_value, false_mask_value)
+def masking_g_seq(batch, under_bound, upper_bound, true_mask_value, false_mask_value):
+    under_mask = torch.where(batch > under_bound, true_mask_value, false_mask_value)
+    upper_mask = torch.where(batch <= upper_bound, true_mask_value, false_mask_value)
     mask = under_mask * upper_mask
     return mask
 
 
-def masking_min(batch, under_bound, true_mask_value, false_mask_value):
+def masking_geq(batch, under_bound, true_mask_value, false_mask_value):
     under_mask = torch.where(batch >= under_bound, true_mask_value, false_mask_value)
     return under_mask
 
+def masking_g(batch, under_bound, true_mask_value, false_mask_value):
+    under_mask = torch.where(batch > under_bound, true_mask_value, false_mask_value)
+    return under_mask
 
-def masking_max(batch, upper_bound, true_mask_value, false_mask_value):
+
+def masking_s(batch, upper_bound, true_mask_value, false_mask_value):
     upper_mask = torch.where(batch < upper_bound, true_mask_value, false_mask_value)
     return upper_mask
+
+
+def avoid_nan_to_avg(batch, device):
+    if (not torch.isnan(batch).any()) or torch.isnan(batch).all():
+        return batch
+    else:
+        nan_index = torch.isnan(batch)
+
+        nan_to_zero_batch = torch.nan_to_num(batch)
+        avg = torch.sum(nan_to_zero_batch) / torch.sum(~nan_index)
+        avg_batch = avg.repeat(len(batch))
+
+        nan_to_avg_batch = ~nan_index * nan_to_zero_batch + nan_index * avg_batch
+        return nan_to_avg_batch
 
 
 def length_masking(batch, device):
@@ -281,7 +362,7 @@ def batch_histogram(batch, batch_count, min, max, num_item, device):
     for i in range(num_item):
         under_edge = edges[i]
         upper_edge = edges[i+1]
-        counts = masking_min_max(batch, under_edge, upper_edge, true_mask_value, false_mask_value)
+        counts = masking_g_seq(batch, under_edge, upper_edge, true_mask_value, false_mask_value)
         counts = torch.sum(counts, dim=(1, 2))
         batch_hist[:, i] = torch.reshape((counts / batch_count), (batch.shape[0], 1))
 

@@ -213,8 +213,6 @@ class GailPPOTrainer:
                 print(loss)
                 None
 
-
-
             print("policy loss", loss.mean())
             self.optimiser_pi.zero_grad()
             loss.mean().backward()
