@@ -27,10 +27,10 @@ state_length = 10
 episode_length = 400
 shuffle = True
 training_testing_ratio = 0.7
-data_volume_for_model_training_ratio = 0.5
+data_volume_for_model_training_ratio = 1.0
 
 algorithms = ['gail_ppo', 'bc', 'bc_gail_ppo', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce']
-max_epoch = 20
+max_epoch = 30
 
 num_simulation_repeat = 3
 
@@ -264,7 +264,7 @@ for algo in algorithms:
 
         # algorithms
         for i in range(len(evaluation_results_for_each_algo)):
-            print(np_evaluation_results[i, :, vis_idx])
+            #print(np_evaluation_results[i, :, vis_idx])
             plt.plot(np_evaluation_results[i, :, vis_idx], label=algorithms[i])
 
         plt.legend()
