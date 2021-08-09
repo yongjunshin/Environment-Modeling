@@ -292,6 +292,7 @@ def masking_geq(batch, under_bound, true_mask_value, false_mask_value):
     under_mask = torch.where(batch >= under_bound, true_mask_value, false_mask_value)
     return under_mask
 
+
 def masking_g(batch, under_bound, true_mask_value, false_mask_value):
     under_mask = torch.where(batch > under_bound, true_mask_value, false_mask_value)
     return under_mask

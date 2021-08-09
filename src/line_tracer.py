@@ -19,7 +19,7 @@ class LineTracerVer1:
         threshold = (black + white) / 2
         turning_ratio = 30
 
-        denormalized_color = self.normalizer.inverse_transform(np.array([[color, 0]], dtype="object"))[0][0]
+        denormalized_color = self.normalizer.inverse_transform(np.array([[color, 0, 0]], dtype="object"))[0][0]
         # print('color:', color)
         # print('denormalized color:', denormalized_color)
 
@@ -30,7 +30,7 @@ class LineTracerVer1:
         else:
             turning_ratio = 0
 
-        normalized_turning_ratio = self.normalizer.transform([[0, turning_ratio]])[0][1]
+        normalized_turning_ratio = self.normalizer.transform([[0, turning_ratio, 0]])[0][1]
         # print('turning:', turning_ratio)
         # print('normalized turning:', normalized_turning_ratio)
         return normalized_turning_ratio
@@ -47,7 +47,7 @@ class LineTracerVer1:
         threshold = (black + white) / 2
         turning_ratio = 30
 
-        concated_colors = np.concatenate((colors, np.zeros(colors.shape)), axis=1)
+        concated_colors = np.concatenate((colors, np.zeros((colors.shape[0], 2))), axis=1)
         denormalized_colors = self.normalizer.inverse_transform(concated_colors)
         denormalized_colors = denormalized_colors[:, 0]
 
@@ -57,7 +57,7 @@ class LineTracerVer1:
         turning_ratios[np.argwhere(denormalized_colors == threshold)] = 0
 
         turning_ratios = np.reshape(turning_ratios, (turning_ratios.shape[0], 1))
-        concated_turning_ratios = np.concatenate((np.zeros(turning_ratios.shape), turning_ratios), axis=1)
+        concated_turning_ratios = np.concatenate((np.zeros(turning_ratios.shape), turning_ratios, np.zeros(turning_ratios.shape)), axis=1)
         normalized_turning_ratio = self.normalizer.transform(concated_turning_ratios)[:, [1]]
 
         return normalized_turning_ratio

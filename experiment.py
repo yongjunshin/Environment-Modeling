@@ -43,7 +43,12 @@ def read_log_file(log_files):
     # read data
     raw_dfs = []
     for file in log_files:
-        raw_dfs.append(pd.read_csv(file, index_col='time'))
+        df = pd.read_csv(file)
+        diffTime = df[1:]['time'].to_numpy() - df[:-1]['time'].to_numpy()
+        df = df[:-1]
+        df["diffTime"] = diffTime
+        df = df.drop('time', axis=1)
+        raw_dfs.append(df)
 
     # normalize data
     noramlized_nparrays, scaler = normalize_dataframes_to_nparrays(raw_dfs)
