@@ -15,6 +15,7 @@ from exp.evaluation import *
 from exp.gail_actor_critic import GailACTrainer
 from exp.gail_ppo import GailPPOTrainer
 from exp.gail_reinforce import GailREINFORCETrainer
+from exp.manual_model import LineTracerManualEnvironmentModelDNN
 from exp.random_model import LineTracerRandomEnvironmentModelDNN
 from src.dataset_builder import *
 from src.line_tracer import LineTracerVer1
@@ -27,7 +28,7 @@ state_length = 10
 episode_length = 400
 shuffle = True
 training_testing_ratio = 0.7
-data_volume_for_model_training_ratio = 1.0
+data_volume_for_model_training_ratio = 0.5
 
 algorithms = ['gail_ppo', 'bc', 'bc_gail_ppo', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce']
 max_epoch = 30
@@ -184,14 +185,27 @@ training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = d
 
 line_tracer = LineTracerVer1(scaler)
 
+testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=True)
+
+print("random model")
 random_model = LineTracerRandomEnvironmentModelDNN(device)
 random_model.to(device)
-sim_result = simulate_deterministic(random_model, line_tracer, testing_dataset_y.shape[1], testing_dataset_x, device)
-random_ed = batch_euclidean_distance(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
-random_dtw = batch_dynamic_time_warping(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
-testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=True)
+# sim_result = simulate_deterministic(random_model, line_tracer, testing_dataset_y.shape[1], testing_dataset_x, device)
+# random_ed = batch_euclidean_distance(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
+# random_dtw = batch_dynamic_time_warping(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
 random_result = simulation_and_comparison(random_model, line_tracer, testing_dl, device)
 
+manual_model_latency_list = list(range(1, state_length + 1, 2))
+manual_model_unit_diff_list = list(range(1, 16, 2))
+manual_results = []
+for latency in manual_model_latency_list:
+    for unit_diff in manual_model_unit_diff_list:
+        print("manual model, latency =", latency, "unit_diff =", unit_diff)
+        manual_model = LineTracerManualEnvironmentModelDNN(latency, unit_diff, scaler, device)
+        manual_model.to(device)
+        manual_results.append(simulation_and_comparison(manual_model, line_tracer, testing_dl, device))
+manual_results = np.array(manual_results)
+manual_result = np.nanmean(manual_results, axis=0)
 
 input_length = training_dataset_x.shape[1]
 input_feature = training_dataset_x.shape[2]
@@ -261,6 +275,8 @@ for algo in algorithms:
 
         # random baseline
         plt.plot([random_result[vis_idx]] * np_evaluation_results.shape[1], label="random_model")
+        plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
+
 
         # algorithms
         for i in range(len(evaluation_results_for_each_algo)):
