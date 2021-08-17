@@ -157,7 +157,7 @@ class GailPPOTrainer:
 
             self.optimiser_d.zero_grad()
             loss.backward()
-            print("disc loss", loss)
+            #print("disc loss", loss)
             self.optimiser_d.step()
         # print("loss: ", l)
 
@@ -213,7 +213,7 @@ class GailPPOTrainer:
                 print(loss)
                 None
 
-            print("policy loss", loss.mean())
+            #print("policy loss", loss.mean())
             self.optimiser_pi.zero_grad()
             loss.mean().backward()
             self.optimiser_pi.step()

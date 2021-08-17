@@ -17,6 +17,7 @@ from exp.gail_ppo import GailPPOTrainer
 from exp.gail_reinforce import GailREINFORCETrainer
 from exp.manual_model import LineTracerManualEnvironmentModelDNN
 from exp.random_model import LineTracerRandomEnvironmentModelDNN
+from exp.shallow_model import LineTracerShallowEnvironmentModel
 from src.dataset_builder import *
 from src.line_tracer import LineTracerVer1
 from src.line_tracer_env_model import LineTracerEnvironmentModelDNN
@@ -25,13 +26,13 @@ from src.soft_dtw_cuda import SoftDTW
 log_files = ["data/ver1_fixed_interval/ver1_ft_60_30.csv"]
 
 state_length = 10
-episode_length = 400
+episode_length = 250
 shuffle = True
 training_testing_ratio = 0.7
 data_volume_for_model_training_ratio = 0.5
 
 algorithms = ['gail_ppo', 'bc', 'bc_gail_ppo', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce']
-max_epoch = 30
+max_epoch = 100
 
 num_simulation_repeat = 3
 
@@ -185,16 +186,34 @@ training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = d
 
 line_tracer = LineTracerVer1(scaler)
 
-testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=True)
+testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=False)
 
+
+
+# shallow learning model
+print("shallow model")
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+
+poly_features = PolynomialFeatures(degree=4, include_bias=False)
+flatted_training_x = torch.reshape(training_dataset_x, (training_dataset_x.shape[0], training_dataset_x.shape[1] * training_dataset_x.shape[2])).cpu()
+np_poly_training_x = poly_features.fit_transform(flatted_training_x)
+
+linear_regressor = LinearRegression()
+np_training_y = training_dataset_y[:, 0, 0].cpu().numpy()
+linear_regressor.fit(np_poly_training_x, np_training_y)
+shallow_model = LineTracerShallowEnvironmentModel(linear_regressor, poly_features, device)
+shallow_result = simulation_and_comparison(shallow_model, line_tracer, testing_dl, device)
+
+
+# random model
 print("random model")
 random_model = LineTracerRandomEnvironmentModelDNN(device)
 random_model.to(device)
-# sim_result = simulate_deterministic(random_model, line_tracer, testing_dataset_y.shape[1], testing_dataset_x, device)
-# random_ed = batch_euclidean_distance(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
-# random_dtw = batch_dynamic_time_warping(sim_result[:, :, [0]], testing_dataset_y[:, :, [0]]).mean().item()
 random_result = simulation_and_comparison(random_model, line_tracer, testing_dl, device)
 
+# manual model
+print("manual model")
 manual_model_latency_list = list(range(1, state_length + 1, 2))
 manual_model_unit_diff_list = list(range(1, 16, 2))
 manual_results = []
@@ -207,6 +226,7 @@ for latency in manual_model_latency_list:
 manual_results = np.array(manual_results)
 manual_result = np.nanmean(manual_results, axis=0)
 
+# our model
 input_length = training_dataset_x.shape[1]
 input_feature = training_dataset_x.shape[2]
 hidden_dim = 256
@@ -222,65 +242,35 @@ for algo in algorithms:
     evaluation_results_for_each_algo.append(evaluation_results)
     print()
 
+    titles = ["Euclidian distance", "Dynamic Time Warping", "Metric1 mean", "Metric1 KLD",
+              "Metric2 undershoot mean", "Metric2 undershoot KLD",
+              "Metric2 overshoot mean", "Metric2 overshoot KLD",
+              "Metric3 undershoot mean", "Metric3 undershoot KLD",
+              "Metric3 overshoot mean", "Metric3 overshoot KLD"]
     # save & visualize evaluation results
     np_evaluation_results = np.array(evaluation_results_for_each_algo)
-    for vis_idx in range(8):
+    for vis_idx in range(12):
         plt.figure(figsize=(10, 5))
 
-        # title and field experiment baseline
-        if vis_idx == 0:
-            plt.title("Euclidian distance")
-            plt.plot([0] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx == 1:
-            plt.title("Dynamic Time Warping")
-            min_dtws = batch_dynamic_time_warping(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]])
+        plt.title(titles[vis_idx])
+        if vis_idx == 1:
+            min_dtws = batch_dynamic_time_warping(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], 1000)
             min_dtws = min_dtws.mean()
             plt.plot([min_dtws.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx == 2:
-            plt.title("Diff of time on border")
-            #plt.ylim(-0.1, random_result[vis_idx] * 1.5)
-            min_diff_time, _ = batch_time_length_on_line_border_comparison(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], scaler, device)
-            min_diff_time = min_diff_time.mean()
-            plt.plot([min_diff_time.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx == 3:
-            plt.title("Diff of time outside border")
-            #plt.ylim(-0.1, random_result[vis_idx] * 1.5)
-            min_diff_time, _ = batch_time_length_outside_line_border_comparison(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], scaler, device)
-            min_diff_time = min_diff_time.mean()
-            plt.plot([min_diff_time.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx == 4:
-            plt.title("Diff of amplitude")
-            #plt.ylim(-0.01, random_result[vis_idx] * 1.5)
-            min_diff_amplitude, _ = batch_amplitude_comparison(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], scaler, device)
-            min_diff_amplitude = min_diff_amplitude.mean()
-            plt.plot([min_diff_amplitude.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx == 5:
-            plt.title("JSD diff of time on border")
-            #plt.ylim(-0.01, random_result[vis_idx] * 1.5)
-            _, min_jsd_diff_time = batch_time_length_on_line_border_comparison(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], scaler, device)
-            min_jsd_diff_time = min_jsd_diff_time.mean()
-            plt.plot([min_jsd_diff_time.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx == 6:
-            plt.title("JSD diff of time outside border")
-            #plt.ylim(-0.1, random_result[vis_idx] * 1.5)
-            _, min_diff_time = batch_time_length_outside_line_border_comparison(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], scaler, device)
-            min_diff_time = min_diff_time.mean()
-            plt.plot([min_diff_time.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx == 7:
-            plt.title("JSD diff of amplitude")
-            #plt.ylim(-0.01, random_result[vis_idx] * 1.5)
-            _, min_diff_amplitude = batch_amplitude_comparison(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], scaler, device)
-            min_diff_amplitude = min_diff_amplitude.mean()
-            plt.plot([min_diff_amplitude.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
+        else:
+            plt.plot([0.] * np_evaluation_results.shape[1], label="field_experiment")
 
         # random baseline
         plt.plot([random_result[vis_idx]] * np_evaluation_results.shape[1], label="random_model")
+
+        # manual baseline
         plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
 
+        # shallow learning baseline
+        plt.plot([shallow_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_model")
 
         # algorithms
         for i in range(len(evaluation_results_for_each_algo)):
-            #print(np_evaluation_results[i, :, vis_idx])
             plt.plot(np_evaluation_results[i, :, vis_idx], label=algorithms[i])
 
         plt.legend()
