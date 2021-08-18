@@ -74,6 +74,7 @@ def batch_dynamic_time_warping(batch1, batch2, batch_size=None):
 gray_underbound = 35
 gray_upperbound = 49
 
+
 def batch_time_length_on_line_border_comparison(batch1, batch2, normalizer, device):
     unnormalized_underbound = gray_underbound
     normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
@@ -645,6 +646,8 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     # checksum = torch.sum(metric1_real_hist)
     metric1_jsd = KLD(metric1_model_hist, metric1_real_hist, device)
 
+    metric1_max_diff_ci = max_error_confidence_interval(model_mean_time_length_on_line_border, real_mean_time_length_on_line_border)
+
     # metric 2
     model_mean_time_undershoot = avoid_nan_to_avg(torch.cat(model_mean_time_undershoot), device)
     model_mean_time_overshoot = avoid_nan_to_avg(torch.cat(model_mean_time_overshoot), device)
@@ -669,6 +672,9 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     # checksum = torch.sum(metric2_real_overshoot_hist)
     metric2_undershoot_jsd = KLD(metric2_model_undershoot_hist, metric2_real_undershoot_hist, device)
     metric2_overshoot_jsd = KLD(metric2_model_overshoot_hist, metric2_real_overshoot_hist, device)
+
+    metric2_undershoot_max_diff_ci = max_error_confidence_interval(model_mean_time_undershoot, real_mean_time_undershoot)
+    metric2_overshoot_max_diff_ci = max_error_confidence_interval(model_mean_time_overshoot, real_mean_time_overshoot)
 
     # metric 3
     model_mean_amplitude_undershoot = avoid_nan_to_avg(torch.cat(model_mean_amplitude_undershoot), device)
@@ -695,10 +701,46 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     metric3_undershoot_jsd = KLD(metric3_model_undershoot_hist, metric3_real_undershoot_hist, device)
     metric3_overshoot_jsd = KLD(metric3_model_overshoot_hist, metric3_real_overshoot_hist, device)
 
-    report = [ed_mean.item(), dtw_mean.item(), metric1_mean.item(), metric1_jsd.item(),
-              metric2_mean_undershoot.item(), metric2_undershoot_jsd.item(),
-              metric2_mean_overshoot.item(), metric2_overshoot_jsd.item(),
-              metric3_mean_undershoot.item(), metric3_undershoot_jsd.item(),
-              metric3_mean_overshoot.item(), metric3_overshoot_jsd.item()]
+    metric3_undershoot_max_diff_ci = max_error_confidence_interval(model_mean_amplitude_undershoot, real_mean_amplitude_undershoot)
+    metric3_overshoot_max_diff_ci = max_error_confidence_interval(model_mean_amplitude_overshoot, real_mean_amplitude_overshoot)
+
+    # report = [ed_mean.item(), dtw_mean.item(), metric1_mean.item(), metric1_jsd.item(),
+    #           metric2_mean_undershoot.item(), metric2_undershoot_jsd.item(),
+    #           metric2_mean_overshoot.item(), metric2_overshoot_jsd.item(),
+    #           metric3_mean_undershoot.item(), metric3_undershoot_jsd.item(),
+    #           metric3_mean_overshoot.item(), metric3_overshoot_jsd.item()]
+
+    report = [ed_mean.item(), dtw_mean.item(), metric1_mean.item(), metric1_max_diff_ci.item(),
+              metric2_mean_undershoot.item(), metric2_undershoot_max_diff_ci.item(),
+              metric2_mean_overshoot.item(), metric2_overshoot_max_diff_ci.item(),
+              metric3_mean_undershoot.item(), metric3_undershoot_max_diff_ci.item(),
+              metric3_mean_overshoot.item(), metric3_overshoot_max_diff_ci.item()]
+
     print(report)
     return report
+
+
+def max_error_confidence_interval(target_samples, ref_samples):
+    target_len = len(target_samples)
+    target_mean = torch.mean(target_samples)
+    target_std = torch.std(target_samples)
+
+    ref_len = len(ref_samples)
+    ref_mean = torch.mean(ref_samples)
+    ref_std = torch.std(ref_samples)
+
+    mean_error = torch.abs(target_mean - ref_mean)
+    error_boundary = 1.96 * torch.sqrt(torch.pow(target_std, 2)/target_len + torch.pow(ref_std, 2)/ref_len)
+
+    max_error = mean_error + error_boundary
+    return max_error
+
+
+def confidence_interval(samples):
+    samples_len = len(samples)
+    samples_mean = torch.mean(samples)
+    samples_std = torch.std(samples)
+
+    samples_error = 1.96 * (samples_std / torch.sqrt(samples_len))
+    samples_ci = ((samples_mean - samples_error), (samples_mean + samples_error))
+    return samples_ci
