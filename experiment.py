@@ -17,7 +17,7 @@ from exp.gail_ppo import GailPPOTrainer
 from exp.gail_reinforce import GailREINFORCETrainer
 from exp.manual_model import LineTracerManualEnvironmentModelDNN
 from exp.random_model import LineTracerRandomEnvironmentModelDNN
-from exp.shallow_model import LineTracerShallowEnvironmentModel
+from exp.shallow_model import LineTracerShallowPREnvironmentModel, LineTracerShallowRFEnvironmentModel
 from src.dataset_builder import *
 from src.line_tracer import LineTracerVer1
 from src.line_tracer_env_model import LineTracerEnvironmentModelDNN
@@ -188,22 +188,31 @@ line_tracer = LineTracerVer1(scaler)
 
 testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=False)
 
-
-
-# shallow learning model
-print("shallow model")
+# shallow learning model (polynomial regression)
+print("shallow model (Polynomial regression)")
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 
-poly_features = PolynomialFeatures(degree=4, include_bias=False)
+poly_features = PolynomialFeatures(degree=2, include_bias=False)
 flatted_training_x = torch.reshape(training_dataset_x, (training_dataset_x.shape[0], training_dataset_x.shape[1] * training_dataset_x.shape[2])).cpu()
 np_poly_training_x = poly_features.fit_transform(flatted_training_x)
 
 linear_regressor = LinearRegression()
 np_training_y = training_dataset_y[:, 0, 0].cpu().numpy()
 linear_regressor.fit(np_poly_training_x, np_training_y)
-shallow_model = LineTracerShallowEnvironmentModel(linear_regressor, poly_features, device)
-shallow_result = simulation_and_comparison(shallow_model, line_tracer, testing_dl, device)
+shallow_PR_model = LineTracerShallowPREnvironmentModel(linear_regressor, poly_features, device)
+shallow_PR_result = simulation_and_comparison(shallow_PR_model, line_tracer, testing_dl, device)
+
+
+# shallow learning model (Random forest)
+print("shallow model (Random forest)")
+from sklearn.ensemble import RandomForestRegressor
+
+rf_regressor = RandomForestRegressor()
+np_training_y = training_dataset_y[:, 0, 0].cpu().numpy()
+rf_regressor.fit(flatted_training_x, np_training_y)
+shallow_RF_model = LineTracerShallowRFEnvironmentModel(rf_regressor, device)
+shallow_RF_result = simulation_and_comparison(shallow_RF_model, line_tracer, testing_dl, device)
 
 
 # random model
@@ -267,7 +276,8 @@ for algo in algorithms:
         plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
 
         # shallow learning baseline
-        plt.plot([shallow_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_model")
+        plt.plot([shallow_PR_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_PR_model")
+        plt.plot([shallow_RF_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_RF_model")
 
         # algorithms
         for i in range(len(evaluation_results_for_each_algo)):
