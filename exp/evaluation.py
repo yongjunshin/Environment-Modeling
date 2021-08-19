@@ -1,3 +1,5 @@
+import math
+
 import torch
 import numpy as np
 
@@ -646,7 +648,7 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     # checksum = torch.sum(metric1_real_hist)
     metric1_jsd = KLD(metric1_model_hist, metric1_real_hist, device)
 
-    metric1_max_diff_ci = max_error_confidence_interval(model_mean_time_length_on_line_border, real_mean_time_length_on_line_border)
+    metric1_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_time_length_on_line_border, real_mean_time_length_on_line_border)
 
     # metric 2
     model_mean_time_undershoot = avoid_nan_to_avg(torch.cat(model_mean_time_undershoot), device)
@@ -673,8 +675,8 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     metric2_undershoot_jsd = KLD(metric2_model_undershoot_hist, metric2_real_undershoot_hist, device)
     metric2_overshoot_jsd = KLD(metric2_model_overshoot_hist, metric2_real_overshoot_hist, device)
 
-    metric2_undershoot_max_diff_ci = max_error_confidence_interval(model_mean_time_undershoot, real_mean_time_undershoot)
-    metric2_overshoot_max_diff_ci = max_error_confidence_interval(model_mean_time_overshoot, real_mean_time_overshoot)
+    metric2_undershoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_time_undershoot, real_mean_time_undershoot)
+    metric2_overshoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_time_overshoot, real_mean_time_overshoot)
 
     # metric 3
     model_mean_amplitude_undershoot = avoid_nan_to_avg(torch.cat(model_mean_amplitude_undershoot), device)
@@ -701,39 +703,35 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     metric3_undershoot_jsd = KLD(metric3_model_undershoot_hist, metric3_real_undershoot_hist, device)
     metric3_overshoot_jsd = KLD(metric3_model_overshoot_hist, metric3_real_overshoot_hist, device)
 
-    metric3_undershoot_max_diff_ci = max_error_confidence_interval(model_mean_amplitude_undershoot, real_mean_amplitude_undershoot)
-    metric3_overshoot_max_diff_ci = max_error_confidence_interval(model_mean_amplitude_overshoot, real_mean_amplitude_overshoot)
+    metric3_undershoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_amplitude_undershoot, real_mean_amplitude_undershoot)
+    metric3_overshoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_amplitude_overshoot, real_mean_amplitude_overshoot)
 
-    # report = [ed_mean.item(), dtw_mean.item(), metric1_mean.item(), metric1_jsd.item(),
-    #           metric2_mean_undershoot.item(), metric2_undershoot_jsd.item(),
-    #           metric2_mean_overshoot.item(), metric2_overshoot_jsd.item(),
-    #           metric3_mean_undershoot.item(), metric3_undershoot_jsd.item(),
-    #           metric3_mean_overshoot.item(), metric3_overshoot_jsd.item()]
-
-    report = [ed_mean.item(), dtw_mean.item(), metric1_mean.item(), metric1_max_diff_ci.item(),
-              metric2_mean_undershoot.item(), metric2_undershoot_max_diff_ci.item(),
-              metric2_mean_overshoot.item(), metric2_overshoot_max_diff_ci.item(),
-              metric3_mean_undershoot.item(), metric3_undershoot_max_diff_ci.item(),
-              metric3_mean_overshoot.item(), metric3_overshoot_max_diff_ci.item()]
+    report = [ed_mean.item(), dtw_mean.item(), metric1_mean.item(), metric1_jsd.item(),
+              metric2_mean_undershoot.item(), metric2_undershoot_jsd.item(),
+              metric2_mean_overshoot.item(), metric2_overshoot_jsd.item(),
+              metric3_mean_undershoot.item(), metric3_undershoot_jsd.item(),
+              metric3_mean_overshoot.item(), metric3_overshoot_jsd.item(),
+              metric1_overlapped_ci.item(), metric2_undershoot_overlapped_ci.item(), metric2_overshoot_overlapped_ci.item(),
+              metric3_undershoot_overlapped_ci.item(), metric3_overshoot_overlapped_ci.item()]
 
     print(report)
     return report
 
 
-def max_error_confidence_interval(target_samples, ref_samples):
-    target_len = len(target_samples)
-    target_mean = torch.mean(target_samples)
-    target_std = torch.std(target_samples)
+def overlapped_confidence_interval_ratio(samples1, samples2):
+    ci1 = confidence_interval(samples1)
+    ci2 = confidence_interval(samples2)
 
-    ref_len = len(ref_samples)
-    ref_mean = torch.mean(ref_samples)
-    ref_std = torch.std(ref_samples)
+    if ci1[1] < ci2[0] or ci1[0] > ci2[1]:  # not overlapped
+        return torch.tensor([0.])
+    else:
+        edges = [ci1[0], ci1[1], ci2[0], ci2[1]]
+        edges.sort()
+        union_length = edges[3] - edges[0]
+        intersection_length = edges[2] - edges[1]
+        overlapped_ratio = intersection_length / union_length
+        return overlapped_ratio
 
-    mean_error = torch.abs(target_mean - ref_mean)
-    error_boundary = 1.96 * torch.sqrt(torch.pow(target_std, 2)/target_len + torch.pow(ref_std, 2)/ref_len)
-
-    max_error = mean_error + error_boundary
-    return max_error
 
 
 def confidence_interval(samples):
@@ -741,6 +739,6 @@ def confidence_interval(samples):
     samples_mean = torch.mean(samples)
     samples_std = torch.std(samples)
 
-    samples_error = 1.96 * (samples_std / torch.sqrt(samples_len))
+    samples_error = 1.96 * (samples_std / np.sqrt(samples_len))
     samples_ci = ((samples_mean - samples_error), (samples_mean + samples_error))
     return samples_ci

@@ -28,10 +28,10 @@ log_files = ["data/ver1_fixed_interval/ver1_ft_60_30.csv"]
 state_length = 10
 episode_length = 250
 shuffle = True
-training_testing_ratio = 0.7
-data_volume_for_model_training_ratio = 0.5
+training_testing_ratio = 0.9988
+data_volume_for_model_training_ratio = 0.0013
 
-algorithms = ['gail_ppo', 'bc', 'bc_gail_ppo', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce']
+algorithms = ['bc_gail_ppo', 'gail_ppo', 'bc', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce']
 max_epoch = 100
 
 num_simulation_repeat = 3
@@ -255,10 +255,12 @@ for algo in algorithms:
               "Metric2 undershoot mean", "Metric2 undershoot KLD",
               "Metric2 overshoot mean", "Metric2 overshoot KLD",
               "Metric3 undershoot mean", "Metric3 undershoot KLD",
-              "Metric3 overshoot mean", "Metric3 overshoot KLD"]
+              "Metric3 overshoot mean", "Metric3 overshoot KLD",
+              "Metric1 overlapped CI", "Metric2 undershoot overlapped CI", "Metric2 overshoot overlapped CI",
+              "Metric3 undershoot overlapped CI", "Metric3 overshoot overlapped CI", ]
     # save & visualize evaluation results
     np_evaluation_results = np.array(evaluation_results_for_each_algo)
-    for vis_idx in range(12):
+    for vis_idx in range(17):
         plt.figure(figsize=(10, 5))
 
         plt.title(titles[vis_idx])
@@ -266,6 +268,8 @@ for algo in algorithms:
             min_dtws = batch_dynamic_time_warping(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], 1000)
             min_dtws = min_dtws.mean()
             plt.plot([min_dtws.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
+        elif vis_idx >= 12:
+            plt.plot([1.] * np_evaluation_results.shape[1], label="field_experiment")
         else:
             plt.plot([0.] * np_evaluation_results.shape[1], label="field_experiment")
 
