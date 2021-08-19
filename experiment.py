@@ -18,6 +18,7 @@ from exp.gail_reinforce import GailREINFORCETrainer
 from exp.manual_model import LineTracerManualEnvironmentModelDNN
 from exp.random_model import LineTracerRandomEnvironmentModelDNN
 from exp.shallow_model import LineTracerShallowPREnvironmentModel, LineTracerShallowRFEnvironmentModel
+from exp.util import episode_to_datapoints
 from src.dataset_builder import *
 from src.line_tracer import LineTracerVer1
 from src.line_tracer_env_model import LineTracerEnvironmentModelDNN
@@ -28,11 +29,11 @@ log_files = ["data/ver1_fixed_interval/ver1_ft_60_30.csv"]
 state_length = 10
 episode_length = 250
 shuffle = True
-training_testing_ratio = 0.9988
-data_volume_for_model_training_ratio = 0.0013
+num_training_episode = 3
+num_testing_episode = 30
 
-algorithms = ['bc_gail_ppo', 'gail_ppo', 'bc', 'gail_actor_critic', 'bc_stochastic', 'bc_episode', 'gail_reinforce']
-max_epoch = 100
+algorithms = ['bc_gail_ppo', 'gail_ppo', 'bc', 'gail_reinforce', 'gail_actor_critic', 'bc_episode', 'bc_stochastic']
+max_epoch = 50
 
 num_simulation_repeat = 3
 
@@ -53,7 +54,7 @@ def read_log_file(log_files):
     return noramlized_nparrays, scaler
 
 
-def data_preprocessing(log_dataset, state_length, episode_length, training_testing_ratio, model_generation_data_portion, device, shuffle=True):
+def data_preprocessing(log_dataset, state_length, episode_length, num_training_episode, num_testing_episode, device, shuffle=True):
     # change data shape
     x_data = []
     y_data = []
@@ -68,10 +69,10 @@ def data_preprocessing(log_dataset, state_length, episode_length, training_testi
     index_list = list(range(len(x_data)))
     if shuffle:
         random.shuffle(index_list)
-    training_testing_middle_idx = int(len(index_list) * training_testing_ratio)
-    model_generation_data_middle_idx = int(training_testing_middle_idx * model_generation_data_portion)
-    testing_index_list = index_list[training_testing_middle_idx:]
-    training_index_list = index_list[:model_generation_data_middle_idx]
+
+    training_index_list = index_list[:num_training_episode]
+    testing_idx = int(len(index_list) - num_testing_episode)
+    testing_index_list = index_list[testing_idx:]
 
     x_train_tensor = torch.tensor(x_data[training_index_list], dtype=torch.float32, device=device)
     y_train_tensor = torch.tensor(y_data[training_index_list], dtype=torch.float32, device=device)
@@ -182,7 +183,7 @@ def verification_result_comparison(simulation_verificataion_result, real_verific
 
 log_dataset, scaler = read_log_file(log_files)
 
-training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = data_preprocessing(log_dataset, state_length, episode_length, training_testing_ratio, data_volume_for_model_training_ratio, device, shuffle)
+training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = data_preprocessing(log_dataset, state_length, episode_length, num_training_episode, num_testing_episode, device, shuffle)
 
 line_tracer = LineTracerVer1(scaler)
 
@@ -193,12 +194,13 @@ print("shallow model (Polynomial regression)")
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 
-poly_features = PolynomialFeatures(degree=2, include_bias=False)
-flatted_training_x = torch.reshape(training_dataset_x, (training_dataset_x.shape[0], training_dataset_x.shape[1] * training_dataset_x.shape[2])).cpu()
-np_poly_training_x = poly_features.fit_transform(flatted_training_x)
+x_training_datapoints, y_training_datapoints = episode_to_datapoints(training_dataset_x, training_dataset_y)
+flatted_training_x = torch.reshape(x_training_datapoints, (x_training_datapoints.shape[0], x_training_datapoints.shape[1] * x_training_datapoints.shape[2])).cpu()
+np_training_y = y_training_datapoints[:, 0, 0].cpu().numpy()
 
+poly_features = PolynomialFeatures() #degree=2, include_bias=False)
+np_poly_training_x = poly_features.fit_transform(flatted_training_x)
 linear_regressor = LinearRegression()
-np_training_y = training_dataset_y[:, 0, 0].cpu().numpy()
 linear_regressor.fit(np_poly_training_x, np_training_y)
 shallow_PR_model = LineTracerShallowPREnvironmentModel(linear_regressor, poly_features, device)
 shallow_PR_result = simulation_and_comparison(shallow_PR_model, line_tracer, testing_dl, device)
@@ -209,7 +211,6 @@ print("shallow model (Random forest)")
 from sklearn.ensemble import RandomForestRegressor
 
 rf_regressor = RandomForestRegressor()
-np_training_y = training_dataset_y[:, 0, 0].cpu().numpy()
 rf_regressor.fit(flatted_training_x, np_training_y)
 shallow_RF_model = LineTracerShallowRFEnvironmentModel(rf_regressor, device)
 shallow_RF_result = simulation_and_comparison(shallow_RF_model, line_tracer, testing_dl, device)
@@ -222,18 +223,18 @@ random_model.to(device)
 random_result = simulation_and_comparison(random_model, line_tracer, testing_dl, device)
 
 # manual model
-print("manual model")
-manual_model_latency_list = list(range(1, state_length + 1, 2))
-manual_model_unit_diff_list = list(range(1, 16, 2))
-manual_results = []
-for latency in manual_model_latency_list:
-    for unit_diff in manual_model_unit_diff_list:
-        print("manual model, latency =", latency, "unit_diff =", unit_diff)
-        manual_model = LineTracerManualEnvironmentModelDNN(latency, unit_diff, scaler, device)
-        manual_model.to(device)
-        manual_results.append(simulation_and_comparison(manual_model, line_tracer, testing_dl, device))
-manual_results = np.array(manual_results)
-manual_result = np.nanmean(manual_results, axis=0)
+# print("manual model")
+# manual_model_latency_list = list(range(1, state_length + 1, 2))
+# manual_model_unit_diff_list = list(range(1, 16, 2))
+# manual_results = []
+# for latency in manual_model_latency_list:
+#     for unit_diff in manual_model_unit_diff_list:
+#         print("manual model, latency =", latency, "unit_diff =", unit_diff)
+#         manual_model = LineTracerManualEnvironmentModelDNN(latency, unit_diff, scaler, device)
+#         manual_model.to(device)
+#         manual_results.append(simulation_and_comparison(manual_model, line_tracer, testing_dl, device))
+# manual_results = np.array(manual_results)
+# manual_result = np.nanmean(manual_results, axis=0)
 
 # our model
 input_length = training_dataset_x.shape[1]
@@ -277,7 +278,7 @@ for algo in algorithms:
         plt.plot([random_result[vis_idx]] * np_evaluation_results.shape[1], label="random_model")
 
         # manual baseline
-        plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
+        #plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
 
         # shallow learning baseline
         plt.plot([shallow_PR_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_PR_model")

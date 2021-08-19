@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 from exp.evaluation import *
+from exp.util import episode_to_datapoints
 
 
 class GailPPOTrainer:
@@ -38,7 +39,10 @@ class GailPPOTrainer:
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
-        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=512, shuffle=True)
+
+        episode_length = y.shape[1]
+        x_training_datapoints, y_training_datapoints = episode_to_datapoints(x, y)
+        dl = DataLoader(dataset=TensorDataset(x_training_datapoints, y_training_datapoints), batch_size=512, shuffle=True)
         testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
 
         # initial model
@@ -55,7 +59,7 @@ class GailPPOTrainer:
                 pi_states = []
                 pi_actions = []
                 sim_x = x_batch
-                for sim_idx in range(y_batch.shape[1]):
+                for sim_idx in range(episode_length):
                     pi_states.append(sim_x)
                     # action choice
                     action_prob = model.get_distribution(sim_x)
@@ -90,14 +94,14 @@ class GailPPOTrainer:
                 model.train()
                 self.discriminator.eval()
 
-                y_pred = torch.zeros(y_batch.shape, device=self.device)
+                y_pred = torch.zeros((x_batch.shape[0], episode_length, x_batch.shape[2]), device=self.device)
                 sim_x = x_batch
                 rewards = []
                 probs = []
                 states = []
                 states_prime = []
                 actions = []
-                for sim_idx in range(y_batch.shape[1]):
+                for sim_idx in range(episode_length):
                     # action choice
                     action_distribution = model.get_distribution(sim_x)
                     states.append(sim_x)

@@ -4,6 +4,7 @@ import torch
 import copy
 
 from exp.evaluation import *
+from exp.util import episode_to_datapoints
 
 
 class BehaviorCloning1TickStochasticTrainer:
@@ -17,7 +18,9 @@ class BehaviorCloning1TickStochasticTrainer:
         optimiser = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
-        dl = DataLoader(dataset=TensorDataset(x, y), batch_size=512, shuffle=True)
+
+        x_training_datapoints, y_training_datapoints = episode_to_datapoints(x, y)
+        dl = DataLoader(dataset=TensorDataset(x_training_datapoints, y_training_datapoints), batch_size=512, shuffle=True)
         testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
 
         # initial model
