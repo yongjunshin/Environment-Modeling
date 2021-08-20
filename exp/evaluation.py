@@ -142,7 +142,7 @@ def batch_time_length_on_line_border_comparison(batch1, batch2, normalizer, devi
     return mean_diffs, jsd_diff
 
 
-def batch_mean_time_length_on_line_border(batch1, normalizer, device):
+def batch_time_on_line_border(batch1, normalizer, device):
     unnormalized_underbound = gray_underbound
     normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
@@ -170,8 +170,8 @@ def batch_mean_time_length_on_line_border(batch1, normalizer, device):
 
     count_batch1 = torch.sum(batch1_length_mask_mask, dim=(1, 2)) + torch.sum(batch1_gray_0tick_mask, dim=(1, 2))
 
-    mean_length_batch1 = length_sum_batch1 / count_batch1
-    return mean_length_batch1
+    #mean_length_batch1 = length_sum_batch1 / count_batch1
+    return length_sum_batch1, count_batch1
 
 
 def batch_time_length_outside_line_border_comparison(batch1, batch2, normalizer, device):
@@ -246,7 +246,7 @@ def batch_time_length_outside_line_border_comparison(batch1, batch2, normalizer,
     return mean_diffs, jsd_diff
 
 
-def batch_mean_time_length_outside_line_border(batch1, normalizer, device):
+def batch_time_outside_line_border(batch1, normalizer, device):
     unnormalized_underbound = gray_underbound
     normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
@@ -280,9 +280,9 @@ def batch_mean_time_length_outside_line_border(batch1, normalizer, device):
     count1_batch1 = torch.sum(batch1_length_mask1_mask, dim=(1, 2))
     count2_batch1 = torch.sum(batch1_length_mask2_mask, dim=(1, 2))
 
-    mean_length1_batch1 = length_sum1_batch1 / count1_batch1
-    mean_length2_batch1 = length_sum2_batch1 / count2_batch1
-    return mean_length1_batch1, mean_length2_batch1
+    #mean_length1_batch1 = length_sum1_batch1 / count1_batch1
+    #mean_length2_batch1 = length_sum2_batch1 / count2_batch1
+    return length_sum1_batch1, count1_batch1, length_sum2_batch1, count2_batch1
 
 
 def batch_amplitude_comparison(batch1, batch2, normalizer, device):
@@ -362,7 +362,7 @@ def batch_amplitude_comparison(batch1, batch2, normalizer, device):
     return mean_diffs, jsd_diff
 
 
-def batch_mean_amplitude(batch1, normalizer, device):
+def batch_amplitude_sum(batch1, normalizer, device):
     unnormalized_underbound = gray_underbound
     normalized_underbound = normalizer.transform(np.array([[unnormalized_underbound, 0]]))[0, 0]
     normalized_underbound = torch.tensor([normalized_underbound], device=device)
@@ -394,12 +394,12 @@ def batch_mean_amplitude(batch1, normalizer, device):
     amplitude_sum1_batch1 = torch.sum(batch1_amplitude1, dim=(1, 2))
     amplitude_sum2_batch1 = torch.sum(batch1_amplitude2, dim=(1, 2))
 
-    count1_batch1 = torch.sum(batch1_amplitude1_mask, dim=(1, 2))
-    count2_batch1 = torch.sum(batch1_amplitude2_mask, dim=(1, 2))
-
-    mean_amplitude1_batch1 = amplitude_sum1_batch1 / count1_batch1
-    mean_amplitude2_batch1 = amplitude_sum2_batch1 / count2_batch1
-    return mean_amplitude1_batch1, mean_amplitude2_batch1
+    # count1_batch1 = torch.sum(batch1_amplitude1_mask, dim=(1, 2))
+    # count2_batch1 = torch.sum(batch1_amplitude2_mask, dim=(1, 2))
+    #
+    # mean_amplitude1_batch1 = amplitude_sum1_batch1 / count1_batch1
+    # mean_amplitude2_batch1 = amplitude_sum2_batch1 / count2_batch1
+    return amplitude_sum1_batch1, amplitude_sum2_batch1
 
 
 def masking_geq_seq(batch, under_bound, upper_bound, true_mask_value, false_mask_value):
@@ -582,22 +582,29 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
     dtw_sum = torch.zeros((), device=device)
 
     # metric 1
-    model_mean_time_length_on_line_border = []
-    real_mean_time_length_on_line_border = []
+    model_time_on_line_border = []
+    model_count_on_line_border = []
+    real_time_on_line_border = []
+    real_count_on_line_border = []
 
     # metric 2
-    model_mean_time_undershoot = []
-    model_mean_time_overshoot = []
-    real_mean_time_undershoot = []
-    real_mean_time_overshoot = []
+    model_time_undershoot = []
+    model_time_overshoot = []
+    model_count_undershoot = []
+    model_count_overshoot = []
+    real_time_undershoot = []
+    real_time_overshoot = []
+    real_count_undershoot = []
+    real_count_overshoot = []
 
     # metric 3
-    model_mean_amplitude_undershoot = []
-    model_mean_amplitude_overshoot = []
-    real_mean_amplitude_undershoot = []
-    real_mean_amplitude_overshoot = []
+    model_amplitude_undershoot = []
+    model_amplitude_overshoot = []
+    real_amplitude_undershoot = []
+    real_amplitude_overshoot = []
 
     for _, (x_batch, y_batch) in enumerate(testing_dataloader):
+        episode_length = y_batch.shape[1]
         sim_result = simulate_deterministic(model, sut, y_batch.shape[1], x_batch, device)
 
         # plt.figure(figsize=(10, 5))
@@ -613,106 +620,170 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
         dtw_sum = dtw_sum + torch.sum(dtws)
 
         # new evaluation
-        model_mean_time_length_on_line_border.append(batch_mean_time_length_on_line_border(sim_result[:, :, [0]], sut.get_normalizer(), device))
-        real_mean_time_length_on_line_border.append(batch_mean_time_length_on_line_border(y_batch[:, :, [0]], sut.get_normalizer(), device))
+        model_m1_time, model_m1_count = batch_time_on_line_border(sim_result[:, :, [0]], sut.get_normalizer(), device)
+        model_time_on_line_border.append(model_m1_time)
+        model_count_on_line_border.append(model_m1_count)
+        real_m1_time, real_m1_count = batch_time_on_line_border(y_batch[:, :, [0]], sut.get_normalizer(), device)
+        real_time_on_line_border.append(real_m1_time)
+        real_count_on_line_border.append(real_m1_count)
 
-        model_undershoot_time, model_overshoot_time = batch_mean_time_length_outside_line_border(sim_result[:, :, [0]], sut.get_normalizer(), device)
-        model_mean_time_undershoot.append(model_undershoot_time)
-        model_mean_time_overshoot.append(model_overshoot_time)
-        real_undershot_time, real_overshoot_time = batch_mean_time_length_outside_line_border(y_batch[:, :, [0]], sut.get_normalizer(), device)
-        real_mean_time_undershoot.append(real_undershot_time)
-        real_mean_time_overshoot.append(real_overshoot_time)
+        model_m2_undershoot_time, model_m2_undershoot_count, model_m2_overshoot_time, model_m2_overshoot_count = batch_time_outside_line_border(sim_result[:, :, [0]], sut.get_normalizer(), device)
+        model_time_undershoot.append(model_m2_undershoot_time)
+        model_count_undershoot.append(model_m2_undershoot_count)
+        model_time_overshoot.append(model_m2_overshoot_time)
+        model_count_overshoot.append(model_m2_overshoot_count)
+        real_m2_undershoot_time, real_m2_undershoot_count, real_m2_overshoot_time, real_m2_overshoot_count = batch_time_outside_line_border(y_batch[:, :, [0]], sut.get_normalizer(), device)
+        real_time_undershoot.append(real_m2_undershoot_time)
+        real_count_undershoot.append(real_m2_undershoot_count)
+        real_time_overshoot.append(real_m2_overshoot_time)
+        real_count_overshoot.append(real_m2_overshoot_count)
 
-        model_undershoot_amplitude, model_overshoot_amplitude = batch_mean_amplitude(sim_result[:, :, [0]], sut.get_normalizer(), device)
-        model_mean_amplitude_undershoot.append(model_undershoot_amplitude)
-        model_mean_amplitude_overshoot.append(model_overshoot_amplitude)
-        real_undershoot_amplitude, real_overshoot_amplitude = batch_mean_amplitude(y_batch[:, :, [0]], sut.get_normalizer(), device)
-        real_mean_amplitude_undershoot.append(real_undershoot_amplitude)
-        real_mean_amplitude_overshoot.append(real_overshoot_amplitude)
+        model_undershoot_amplitude, model_overshoot_amplitude = batch_amplitude_sum(sim_result[:, :, [0]], sut.get_normalizer(), device)
+        model_amplitude_undershoot.append(model_undershoot_amplitude)
+        model_amplitude_overshoot.append(model_overshoot_amplitude)
+        real_undershoot_amplitude, real_overshoot_amplitude = batch_amplitude_sum(y_batch[:, :, [0]], sut.get_normalizer(), device)
+        real_amplitude_undershoot.append(real_undershoot_amplitude)
+        real_amplitude_overshoot.append(real_overshoot_amplitude)
 
     ed_mean = ed_sum / num_data
     dtw_mean = dtw_sum / num_data
 
     # new evaluation
     # metric 1
-    model_mean_time_length_on_line_border = avoid_nan_to_avg(torch.cat(model_mean_time_length_on_line_border), device)
-    real_mean_time_length_on_line_border = avoid_nan_to_avg(torch.cat(real_mean_time_length_on_line_border), device)
+    model_time_on_line_border = avoid_nan_to_avg(torch.cat(model_time_on_line_border), device)
+    model_count_on_line_border = avoid_nan_to_avg(torch.cat(model_count_on_line_border), device)
+    real_time_on_line_border = avoid_nan_to_avg(torch.cat(real_time_on_line_border), device)
+    real_count_on_line_border = avoid_nan_to_avg(torch.cat(real_count_on_line_border), device)
 
-    metric1_mean = torch.abs(torch.mean(model_mean_time_length_on_line_border) - torch.mean(real_mean_time_length_on_line_border))
+    metric1_time_diff = torch.abs(torch.mean(model_time_on_line_border) - torch.mean(real_time_on_line_border))/episode_length
+    metric1_time_diff = torch.nan_to_num(metric1_time_diff, nan=1.0)
 
-    metric1_hist_min_edge = torch.min(torch.cat((model_mean_time_length_on_line_border, real_mean_time_length_on_line_border)))
-    metric1_hist_max_edge = torch.max(torch.cat((model_mean_time_length_on_line_border, real_mean_time_length_on_line_border)))
-    metric1_model_hist = get_histogram(model_mean_time_length_on_line_border, metric1_hist_min_edge, metric1_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric1_model_hist)
-    metric1_real_hist = get_histogram(real_mean_time_length_on_line_border, metric1_hist_min_edge, metric1_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric1_real_hist)
-    metric1_jsd = KLD(metric1_model_hist, metric1_real_hist, device)
+    metric1_count_diff = torch.abs(torch.mean(model_count_on_line_border) - torch.mean(real_count_on_line_border))/(episode_length/2)
+    metric1_count_diff = torch.nan_to_num(metric1_count_diff, nan=1.0)
 
-    metric1_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_time_length_on_line_border, real_mean_time_length_on_line_border)
+    # # KLD JSD
+    # metric1_hist_min_edge = torch.min(torch.cat((model_time_on_line_border, real_time_on_line_border)))
+    # metric1_hist_max_edge = torch.max(torch.cat((model_time_on_line_border, real_time_on_line_border)))
+    # metric1_model_hist = get_histogram(model_time_on_line_border, metric1_hist_min_edge, metric1_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric1_model_hist)
+    # metric1_real_hist = get_histogram(real_time_on_line_border, metric1_hist_min_edge, metric1_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric1_real_hist)
+    # metric1_jsd = KLD(metric1_model_hist, metric1_real_hist, device)
+    #
+    metric1_time_overlapped_ci = overlapped_confidence_interval_ratio(model_time_on_line_border, real_time_on_line_border)
+    metric1_count_overlapped_ci = overlapped_confidence_interval_ratio(model_count_on_line_border, real_count_on_line_border)
 
     # metric 2
-    model_mean_time_undershoot = avoid_nan_to_avg(torch.cat(model_mean_time_undershoot), device)
-    model_mean_time_overshoot = avoid_nan_to_avg(torch.cat(model_mean_time_overshoot), device)
-    real_mean_time_undershoot = avoid_nan_to_avg(torch.cat(real_mean_time_undershoot), device)
-    real_mean_time_overshoot = avoid_nan_to_avg(torch.cat(real_mean_time_overshoot), device)
+    model_time_undershoot = avoid_nan_to_avg(torch.cat(model_time_undershoot), device)
+    model_time_overshoot = avoid_nan_to_avg(torch.cat(model_time_overshoot), device)
+    model_count_undershoot = avoid_nan_to_avg(torch.cat(model_count_undershoot), device)
+    model_count_overshoot = avoid_nan_to_avg(torch.cat(model_count_overshoot), device)
+    real_time_undershoot = avoid_nan_to_avg(torch.cat(real_time_undershoot), device)
+    real_time_overshoot = avoid_nan_to_avg(torch.cat(real_time_overshoot), device)
+    real_count_undershoot = avoid_nan_to_avg(torch.cat(real_count_undershoot), device)
+    real_count_overshoot = avoid_nan_to_avg(torch.cat(real_count_overshoot), device)
 
-    metric2_mean_undershoot = torch.abs(torch.mean(model_mean_time_undershoot) - torch.mean(real_mean_time_undershoot))
-    metric2_mean_overshoot = torch.abs(torch.mean(model_mean_time_overshoot) - torch.mean(real_mean_time_overshoot))
+    metric2_undershoot_time_diff = torch.abs(torch.mean(model_time_undershoot) - torch.mean(real_time_undershoot))/episode_length
+    metric2_undershoot_time_diff = torch.nan_to_num(metric2_undershoot_time_diff, nan=1.0)
+    metric2_overshoot_time_diff = torch.abs(torch.mean(model_time_overshoot) - torch.mean(real_time_overshoot))/episode_length
+    metric2_overshoot_time_diff = torch.nan_to_num(metric2_overshoot_time_diff, nan=1.0)
+    metric2_undershoot_count_diff = torch.abs(torch.mean(model_count_undershoot) - torch.mean(real_count_undershoot)) / (episode_length/2)
+    metric2_undershoot_count_diff = torch.nan_to_num(metric2_undershoot_count_diff, nan=1.0)
+    metric2_overshoot_count_diff = torch.abs(torch.mean(model_count_overshoot) - torch.mean(real_count_overshoot)) / (episode_length / 2)
+    metric2_overshoot_count_diff = torch.nan_to_num(metric2_overshoot_count_diff, nan=1.0)
 
-    metric2_undershoot_hist_min_edge = torch.min(torch.cat((model_mean_time_undershoot, real_mean_time_undershoot)))
-    metric2_undershoot_hist_max_edge = torch.max(torch.cat((model_mean_time_undershoot, real_mean_time_undershoot)))
-    metric2_overshoot_hist_min_edge = torch.min(torch.cat((model_mean_time_overshoot, real_mean_time_overshoot)))
-    metric2_overshoot_hist_max_edge = torch.max(torch.cat((model_mean_time_overshoot, real_mean_time_overshoot)))
-
-    metric2_model_undershoot_hist = get_histogram(model_mean_time_undershoot, metric2_undershoot_hist_min_edge, metric2_undershoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric2_model_undershoot_hist)
-    metric2_model_overshoot_hist = get_histogram(model_mean_time_overshoot, metric2_overshoot_hist_min_edge, metric2_overshoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric2_model_overshoot_hist)
-    metric2_real_undershoot_hist = get_histogram(real_mean_time_undershoot, metric2_undershoot_hist_min_edge, metric2_undershoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric2_real_undershoot_hist)
-    metric2_real_overshoot_hist = get_histogram(real_mean_time_overshoot, metric2_overshoot_hist_min_edge, metric2_overshoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric2_real_overshoot_hist)
-    metric2_undershoot_jsd = KLD(metric2_model_undershoot_hist, metric2_real_undershoot_hist, device)
-    metric2_overshoot_jsd = KLD(metric2_model_overshoot_hist, metric2_real_overshoot_hist, device)
-
-    metric2_undershoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_time_undershoot, real_mean_time_undershoot)
-    metric2_overshoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_time_overshoot, real_mean_time_overshoot)
+    # # KLD JSD
+    # metric2_undershoot_hist_min_edge = torch.min(torch.cat((model_time_undershoot, real_time_undershoot)))
+    # metric2_undershoot_hist_max_edge = torch.max(torch.cat((model_time_undershoot, real_time_undershoot)))
+    # metric2_overshoot_hist_min_edge = torch.min(torch.cat((model_time_overshoot, real_time_overshoot)))
+    # metric2_overshoot_hist_max_edge = torch.max(torch.cat((model_time_overshoot, real_time_overshoot)))
+    #
+    # metric2_model_undershoot_hist = get_histogram(model_time_undershoot, metric2_undershoot_hist_min_edge, metric2_undershoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric2_model_undershoot_hist)
+    # metric2_model_overshoot_hist = get_histogram(model_time_overshoot, metric2_overshoot_hist_min_edge, metric2_overshoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric2_model_overshoot_hist)
+    # metric2_real_undershoot_hist = get_histogram(real_time_undershoot, metric2_undershoot_hist_min_edge, metric2_undershoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric2_real_undershoot_hist)
+    # metric2_real_overshoot_hist = get_histogram(real_time_overshoot, metric2_overshoot_hist_min_edge, metric2_overshoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric2_real_overshoot_hist)
+    # metric2_undershoot_jsd = KLD(metric2_model_undershoot_hist, metric2_real_undershoot_hist, device)
+    # metric2_overshoot_jsd = KLD(metric2_model_overshoot_hist, metric2_real_overshoot_hist, device)
+    #
+    metric2_undershoot_time_overlapped_ci = overlapped_confidence_interval_ratio(model_time_undershoot, real_time_undershoot)
+    metric2_overshoot_time_overlapped_ci = overlapped_confidence_interval_ratio(model_time_overshoot, real_time_overshoot)
+    metric2_undershoot_count_overlapped_ci = overlapped_confidence_interval_ratio(model_count_undershoot, real_count_undershoot)
+    metric2_overshoot_count_overlapped_ci = overlapped_confidence_interval_ratio(model_count_overshoot, real_count_overshoot)
 
     # metric 3
-    model_mean_amplitude_undershoot = avoid_nan_to_avg(torch.cat(model_mean_amplitude_undershoot), device)
-    model_mean_amplitude_overshoot = avoid_nan_to_avg(torch.cat(model_mean_amplitude_overshoot), device)
-    real_mean_amplitude_undershoot = avoid_nan_to_avg(torch.cat(real_mean_amplitude_undershoot), device)
-    real_mean_amplitude_overshoot = avoid_nan_to_avg(torch.cat(real_mean_amplitude_overshoot), device)
+    model_amplitude_undershoot = avoid_nan_to_avg(torch.cat(model_amplitude_undershoot), device)
+    model_amplitude_overshoot = avoid_nan_to_avg(torch.cat(model_amplitude_overshoot), device)
+    real_amplitude_undershoot = avoid_nan_to_avg(torch.cat(real_amplitude_undershoot), device)
+    real_amplitude_overshoot = avoid_nan_to_avg(torch.cat(real_amplitude_overshoot), device)
 
-    metric3_mean_undershoot = torch.abs(torch.mean(model_mean_amplitude_undershoot) - torch.mean(real_mean_amplitude_undershoot))
-    metric3_mean_overshoot = torch.abs(torch.mean(model_mean_amplitude_overshoot) - torch.mean(real_mean_amplitude_overshoot))
+    metric3_undershoot_amplitude_diff = torch.abs(torch.mean(model_amplitude_undershoot) - torch.mean(real_amplitude_undershoot))/(2.0*episode_length/2)
+    metric3_undershoot_amplitude_diff = torch.nan_to_num(metric3_undershoot_amplitude_diff, nan=1.0)
+    metric3_overshoot_amplitude_diff = torch.abs(torch.mean(model_amplitude_overshoot) - torch.mean(real_amplitude_overshoot))/(2.0*episode_length/2)
+    metric3_overshoot_amplitude_diff = torch.nan_to_num(metric3_overshoot_amplitude_diff, nan=1.0)
 
-    metric3_undershoot_hist_min_edge = torch.min(torch.cat((model_mean_amplitude_undershoot, real_mean_amplitude_undershoot)))
-    metric3_undershoot_hist_max_edge = torch.max(torch.cat((model_mean_amplitude_undershoot, real_mean_amplitude_undershoot)))
-    metric3_overshoot_hist_min_edge = torch.min(torch.cat((model_mean_amplitude_overshoot, real_mean_amplitude_overshoot)))
-    metric3_overshoot_hist_max_edge = torch.max(torch.cat((model_mean_amplitude_overshoot, real_mean_amplitude_overshoot)))
+    # # KLD JD
+    # metric3_undershoot_hist_min_edge = torch.min(torch.cat((model_amplitude_undershoot, real_amplitude_undershoot)))
+    # metric3_undershoot_hist_max_edge = torch.max(torch.cat((model_amplitude_undershoot, real_amplitude_undershoot)))
+    # metric3_overshoot_hist_min_edge = torch.min(torch.cat((model_amplitude_overshoot, real_amplitude_overshoot)))
+    # metric3_overshoot_hist_max_edge = torch.max(torch.cat((model_amplitude_overshoot, real_amplitude_overshoot)))
+    #
+    # metric3_model_undershoot_hist = get_histogram(model_amplitude_undershoot, metric3_undershoot_hist_min_edge, metric3_undershoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric3_model_undershoot_hist)
+    # metric3_model_overshoot_hist = get_histogram(model_amplitude_overshoot, metric3_overshoot_hist_min_edge, metric3_overshoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric3_model_overshoot_hist)
+    # metric3_real_undershoot_hist = get_histogram(real_amplitude_undershoot, metric3_undershoot_hist_min_edge, metric3_undershoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric3_real_undershoot_hist)
+    # metric3_real_overshoot_hist = get_histogram(real_amplitude_overshoot, metric3_overshoot_hist_min_edge, metric3_overshoot_hist_max_edge, 20, device)
+    # # checksum = torch.sum(metric3_real_overshoot_hist)
+    # metric3_undershoot_jsd = KLD(metric3_model_undershoot_hist, metric3_real_undershoot_hist, device)
+    # metric3_overshoot_jsd = KLD(metric3_model_overshoot_hist, metric3_real_overshoot_hist, device)
 
-    metric3_model_undershoot_hist = get_histogram(model_mean_amplitude_undershoot, metric3_undershoot_hist_min_edge, metric3_undershoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric3_model_undershoot_hist)
-    metric3_model_overshoot_hist = get_histogram(model_mean_amplitude_overshoot, metric3_overshoot_hist_min_edge, metric3_overshoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric3_model_overshoot_hist)
-    metric3_real_undershoot_hist = get_histogram(real_mean_amplitude_undershoot, metric3_undershoot_hist_min_edge, metric3_undershoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric3_real_undershoot_hist)
-    metric3_real_overshoot_hist = get_histogram(real_mean_amplitude_overshoot, metric3_overshoot_hist_min_edge, metric3_overshoot_hist_max_edge, 20, device)
-    # checksum = torch.sum(metric3_real_overshoot_hist)
-    metric3_undershoot_jsd = KLD(metric3_model_undershoot_hist, metric3_real_undershoot_hist, device)
-    metric3_overshoot_jsd = KLD(metric3_model_overshoot_hist, metric3_real_overshoot_hist, device)
+    metric3_undershoot_overlapped_ci = overlapped_confidence_interval_ratio(model_amplitude_undershoot, real_amplitude_undershoot)
+    metric3_overshoot_overlapped_ci = overlapped_confidence_interval_ratio(model_amplitude_overshoot, real_amplitude_overshoot)
 
-    metric3_undershoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_amplitude_undershoot, real_mean_amplitude_undershoot)
-    metric3_overshoot_overlapped_ci = overlapped_confidence_interval_ratio(model_mean_amplitude_overshoot, real_mean_amplitude_overshoot)
+    metric_diff_average = (metric1_time_diff.item() +
+                           metric1_count_diff.item() +
+                           metric2_undershoot_time_diff.item() +
+                           metric2_undershoot_count_diff.item() +
+                           metric2_overshoot_time_diff.item() +
+                           metric2_overshoot_count_diff.item() +
+                           metric3_undershoot_amplitude_diff.item() +
+                           metric3_overshoot_amplitude_diff.item()) / 8
 
-    report = [ed_mean.item(), dtw_mean.item(), metric1_mean.item(), metric1_jsd.item(),
-              metric2_mean_undershoot.item(), metric2_undershoot_jsd.item(),
-              metric2_mean_overshoot.item(), metric2_overshoot_jsd.item(),
-              metric3_mean_undershoot.item(), metric3_undershoot_jsd.item(),
-              metric3_mean_overshoot.item(), metric3_overshoot_jsd.item(),
-              metric1_overlapped_ci.item(), metric2_undershoot_overlapped_ci.item(), metric2_overshoot_overlapped_ci.item(),
-              metric3_undershoot_overlapped_ci.item(), metric3_overshoot_overlapped_ci.item()]
+    metric_overapped_ratio_average = (metric1_time_overlapped_ci.item() +
+                                      metric1_count_overlapped_ci.item() +
+                                      metric2_undershoot_time_overlapped_ci.item() +
+                                      metric2_undershoot_count_overlapped_ci.item() +
+                                      metric2_overshoot_time_overlapped_ci.item() +
+                                      metric2_overshoot_count_overlapped_ci.item() +
+                                      metric3_undershoot_overlapped_ci.item() +
+                                      metric3_overshoot_overlapped_ci.item()) / 8
+
+    report = [ed_mean.item(), dtw_mean.item(),
+
+              metric1_time_diff.item(),
+              metric1_count_diff.item(),
+              metric2_undershoot_time_diff.item(),
+              metric2_undershoot_count_diff.item(),
+              metric2_overshoot_time_diff.item(),
+              metric2_overshoot_count_diff.item(),
+              metric3_undershoot_amplitude_diff.item(),
+              metric3_overshoot_amplitude_diff.item(),
+              metric_diff_average,
+
+              metric1_time_overlapped_ci.item(),
+              metric1_count_overlapped_ci.item(),
+              metric2_undershoot_time_overlapped_ci.item(),
+              metric2_undershoot_count_overlapped_ci.item(),
+              metric2_overshoot_time_overlapped_ci.item(),
+              metric2_overshoot_count_overlapped_ci.item(),
+              metric3_undershoot_overlapped_ci.item(),
+              metric3_overshoot_overlapped_ci.item(),
+              metric_overapped_ratio_average]
 
     print(report)
     return report

@@ -14,7 +14,7 @@ class BehaviorCloning1TickTrainer:
         self.loss_fn = torch.nn.MSELoss()
         self.lr = lr
 
-    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: torch.tensor, yt: torch.tensor) -> list:
+    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: torch.tensor, yt: torch.tensor, episode_length: int) -> list:
         optimiser = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []

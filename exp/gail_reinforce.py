@@ -32,12 +32,11 @@ class GailREINFORCETrainer:
 
         self.gamma = 0.99
 
-    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: torch.tensor, yt: torch.tensor) -> list:
+    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: torch.tensor, yt: torch.tensor, episode_length: int) -> list:
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
 
-        episode_length = y.shape[1]
         x_training_datapoints, y_training_datapoints = episode_to_datapoints(x, y)
         dl = DataLoader(dataset=TensorDataset(x_training_datapoints, y_training_datapoints), batch_size=512, shuffle=True)
         testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)

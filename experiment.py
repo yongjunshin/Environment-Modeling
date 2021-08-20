@@ -28,12 +28,13 @@ log_files = ["data/ver1_fixed_interval/ver1_ft_60_30.csv"]
 
 state_length = 10
 episode_length = 250
+training_episode_length = 1
 shuffle = True
-num_training_episode = 3
+num_training_episode = 10
 num_testing_episode = 30
 
 algorithms = ['bc_gail_ppo', 'gail_ppo', 'bc', 'gail_reinforce', 'gail_actor_critic', 'bc_episode', 'bc_stochastic']
-max_epoch = 50
+max_epoch = 100
 
 num_simulation_repeat = 3
 
@@ -54,7 +55,7 @@ def read_log_file(log_files):
     return noramlized_nparrays, scaler
 
 
-def data_preprocessing(log_dataset, state_length, episode_length, num_training_episode, num_testing_episode, device, shuffle=True):
+def data_preprocessing(log_dataset, state_length, episode_length, training_episode_length, num_training_episode, num_testing_episode, device, shuffle=True):
     # change data shape
     x_data = []
     y_data = []
@@ -75,7 +76,7 @@ def data_preprocessing(log_dataset, state_length, episode_length, num_training_e
     testing_index_list = index_list[testing_idx:]
 
     x_train_tensor = torch.tensor(x_data[training_index_list], dtype=torch.float32, device=device)
-    y_train_tensor = torch.tensor(y_data[training_index_list], dtype=torch.float32, device=device)
+    y_train_tensor = torch.tensor(y_data[training_index_list, :training_episode_length], dtype=torch.float32, device=device)
     x_testing_tensor = torch.tensor(x_data[testing_index_list], dtype=torch.float32, device=device)
     y_testing_tensor = torch.tensor(y_data[testing_index_list], dtype=torch.float32, device=device)
 
@@ -99,7 +100,8 @@ def environment_model_generation(env_model, sut, device, algorithm, training_dat
     elif algorithm == 'bc_gail_ppo':
         trainer = BCGailPPOTrainer(device=device, sut=sut, state_dim=input_feature, action_dim=output_dim, history_length=input_length, lr=learning_rate)
 
-    evaluation_result = trainer.train(model=env_model, epochs=max_epopch, x=training_dataset_x, y=training_dataset_y, xt=testing_dataset_x, yt=testing_dataset_y)
+    episode_length = testing_dataset_y.shape[1]
+    evaluation_result = trainer.train(model=env_model, epochs=max_epopch, x=training_dataset_x, y=training_dataset_y, xt=testing_dataset_x, yt=testing_dataset_y, episode_length=episode_length)
     return evaluation_result
 
 
@@ -183,7 +185,7 @@ def verification_result_comparison(simulation_verificataion_result, real_verific
 
 log_dataset, scaler = read_log_file(log_files)
 
-training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = data_preprocessing(log_dataset, state_length, episode_length, num_training_episode, num_testing_episode, device, shuffle)
+training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = data_preprocessing(log_dataset, state_length, episode_length, training_episode_length, num_training_episode, num_testing_episode, device, shuffle)
 
 line_tracer = LineTracerVer1(scaler)
 
@@ -223,18 +225,18 @@ random_model.to(device)
 random_result = simulation_and_comparison(random_model, line_tracer, testing_dl, device)
 
 # manual model
-# print("manual model")
-# manual_model_latency_list = list(range(1, state_length + 1, 2))
-# manual_model_unit_diff_list = list(range(1, 16, 2))
-# manual_results = []
-# for latency in manual_model_latency_list:
-#     for unit_diff in manual_model_unit_diff_list:
-#         print("manual model, latency =", latency, "unit_diff =", unit_diff)
-#         manual_model = LineTracerManualEnvironmentModelDNN(latency, unit_diff, scaler, device)
-#         manual_model.to(device)
-#         manual_results.append(simulation_and_comparison(manual_model, line_tracer, testing_dl, device))
-# manual_results = np.array(manual_results)
-# manual_result = np.nanmean(manual_results, axis=0)
+print("manual model")
+manual_model_latency_list = list(range(1, state_length + 1, 2))
+manual_model_unit_diff_list = list(range(1, 16, 2))
+manual_results = []
+for latency in manual_model_latency_list:
+    for unit_diff in manual_model_unit_diff_list:
+        print("manual model, latency =", latency, "unit_diff =", unit_diff)
+        manual_model = LineTracerManualEnvironmentModelDNN(latency, unit_diff, scaler, device)
+        manual_model.to(device)
+        manual_results.append(simulation_and_comparison(manual_model, line_tracer, testing_dl, device))
+manual_results = np.array(manual_results)
+manual_result = np.nanmean(manual_results, axis=0)
 
 # our model
 input_length = training_dataset_x.shape[1]
@@ -252,16 +254,31 @@ for algo in algorithms:
     evaluation_results_for_each_algo.append(evaluation_results)
     print()
 
-    titles = ["Euclidian distance", "Dynamic Time Warping", "Metric1 mean", "Metric1 KLD",
-              "Metric2 undershoot mean", "Metric2 undershoot KLD",
-              "Metric2 overshoot mean", "Metric2 overshoot KLD",
-              "Metric3 undershoot mean", "Metric3 undershoot KLD",
-              "Metric3 overshoot mean", "Metric3 overshoot KLD",
-              "Metric1 overlapped CI", "Metric2 undershoot overlapped CI", "Metric2 overshoot overlapped CI",
-              "Metric3 undershoot overlapped CI", "Metric3 overshoot overlapped CI", ]
+    titles = ["Euclidian distance", "Dynamic Time Warping",
+
+              "Metric1 time diff",
+              "Metric1 count diff",
+              "Metric2 undershoot time diff",
+              "Metric2 undershoot count diff",
+              "Metric2 overshoot time diff",
+              "Metric2 overshoot count diff",
+              "Metric3 undershoot amplitude diff",
+              "Metric3 overshoot amplitude diff",
+              "Metric diff average",
+
+              "Metric1 time overlapped CI ratio",
+              "Metric1 count overlapped CI ratio",
+              "Metric2 undershoot time overlapped CI ratio",
+              "Metric2 undershoot count overlapped CI ratio",
+              "Metric2 overshoot time overlapped CI ratio",
+              "Metric2 overshoot count overlapped CI ratio",
+              "Metric3 undershoot amplitude overlapped CI ratio",
+              "Metric3 overshoot amplitude overlapped CI ratio",
+              "Metric overlapped CI ratio average"]
+
     # save & visualize evaluation results
     np_evaluation_results = np.array(evaluation_results_for_each_algo)
-    for vis_idx in range(17):
+    for vis_idx in range(20):
         plt.figure(figsize=(10, 5))
 
         plt.title(titles[vis_idx])
@@ -269,7 +286,7 @@ for algo in algorithms:
             min_dtws = batch_dynamic_time_warping(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], 1000)
             min_dtws = min_dtws.mean()
             plt.plot([min_dtws.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx >= 12:
+        elif vis_idx >= 11:
             plt.plot([1.] * np_evaluation_results.shape[1], label="field_experiment")
         else:
             plt.plot([0.] * np_evaluation_results.shape[1], label="field_experiment")
@@ -278,7 +295,7 @@ for algo in algorithms:
         plt.plot([random_result[vis_idx]] * np_evaluation_results.shape[1], label="random_model")
 
         # manual baseline
-        #plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
+        plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
 
         # shallow learning baseline
         plt.plot([shallow_PR_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_PR_model")
