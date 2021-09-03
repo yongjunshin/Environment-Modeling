@@ -27,14 +27,14 @@ from src.soft_dtw_cuda import SoftDTW
 log_files = ["data/ver1_fixed_interval/ver1_ft_60_30.csv"]
 
 state_length = 10
-episode_length = 250
-training_episode_length = 1
+episode_length = 50
+training_episode_length = episode_length
 shuffle = True
-num_training_episode = 10
-num_testing_episode = 30
+num_training_episode = 1
+num_testing_episode = 50
 
-algorithms = ['bc_gail_ppo', 'gail_ppo', 'bc', 'gail_reinforce', 'gail_actor_critic', 'bc_episode', 'bc_stochastic']
-max_epoch = 100
+algorithms = ['bc_gail_ppo', 'gail_ppo', 'bc']#, 'gail_reinforce', 'gail_actor_critic', 'bc_episode', 'bc_stochastic']
+max_epoch = 300
 
 num_simulation_repeat = 3
 
@@ -183,147 +183,152 @@ def verification_result_comparison(simulation_verificataion_result, real_verific
     return None
 
 
-log_dataset, scaler = read_log_file(log_files)
+for trial in range(1, 30):
+    for num_episode in range(1, 11):
+        print("num episode:", num_episode)
+        print("trial:", trial)
 
-training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = data_preprocessing(log_dataset, state_length, episode_length, training_episode_length, num_training_episode, num_testing_episode, device, shuffle)
+        #training_episode_length = datapoints
+        num_training_episode = num_episode
+        log_dataset, scaler = read_log_file(log_files)
 
-line_tracer = LineTracerVer1(scaler)
+        training_dataset_x, training_dataset_y, testing_dataset_x, testing_dataset_y = data_preprocessing(log_dataset, state_length, episode_length, training_episode_length, num_training_episode, num_testing_episode, device, shuffle)
 
-testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=False)
+        line_tracer = LineTracerVer1(scaler)
 
-# shallow learning model (polynomial regression)
-print("shallow model (Polynomial regression)")
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression
+        testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x, testing_dataset_y), batch_size=516, shuffle=False)
 
-x_training_datapoints, y_training_datapoints = episode_to_datapoints(training_dataset_x, training_dataset_y)
-flatted_training_x = torch.reshape(x_training_datapoints, (x_training_datapoints.shape[0], x_training_datapoints.shape[1] * x_training_datapoints.shape[2])).cpu()
-np_training_y = y_training_datapoints[:, 0, 0].cpu().numpy()
+        # shallow learning model (polynomial regression)
+        print("shallow model (Polynomial regression)")
+        from sklearn.preprocessing import PolynomialFeatures
+        from sklearn.linear_model import LinearRegression
 
-poly_features = PolynomialFeatures() #degree=2, include_bias=False)
-np_poly_training_x = poly_features.fit_transform(flatted_training_x)
-linear_regressor = LinearRegression()
-linear_regressor.fit(np_poly_training_x, np_training_y)
-shallow_PR_model = LineTracerShallowPREnvironmentModel(linear_regressor, poly_features, device)
-shallow_PR_result = simulation_and_comparison(shallow_PR_model, line_tracer, testing_dl, device)
+        x_training_datapoints, y_training_datapoints = episode_to_datapoints(training_dataset_x, training_dataset_y)
+        flatted_training_x = torch.reshape(x_training_datapoints, (x_training_datapoints.shape[0], x_training_datapoints.shape[1] * x_training_datapoints.shape[2])).cpu()
+        np_training_y = y_training_datapoints[:, 0, 0].cpu().numpy()
 
-
-# shallow learning model (Random forest)
-print("shallow model (Random forest)")
-from sklearn.ensemble import RandomForestRegressor
-
-rf_regressor = RandomForestRegressor()
-rf_regressor.fit(flatted_training_x, np_training_y)
-shallow_RF_model = LineTracerShallowRFEnvironmentModel(rf_regressor, device)
-shallow_RF_result = simulation_and_comparison(shallow_RF_model, line_tracer, testing_dl, device)
+        poly_features = PolynomialFeatures() #degree=2, include_bias=False)
+        np_poly_training_x = poly_features.fit_transform(flatted_training_x)
+        linear_regressor = LinearRegression()
+        linear_regressor.fit(np_poly_training_x, np_training_y)
+        shallow_PR_model = LineTracerShallowPREnvironmentModel(linear_regressor, poly_features, device)
+        shallow_PR_result = simulation_and_comparison(shallow_PR_model, line_tracer, testing_dl, device)
 
 
-# random model
-print("random model")
-random_model = LineTracerRandomEnvironmentModelDNN(device)
-random_model.to(device)
-random_result = simulation_and_comparison(random_model, line_tracer, testing_dl, device)
+        # shallow learning model (Random forest)
+        print("shallow model (Random forest)")
+        from sklearn.ensemble import RandomForestRegressor
 
-# manual model
-print("manual model")
-manual_model_latency_list = list(range(1, state_length + 1, 2))
-manual_model_unit_diff_list = list(range(1, 16, 2))
-manual_results = []
-for latency in manual_model_latency_list:
-    for unit_diff in manual_model_unit_diff_list:
-        print("manual model, latency =", latency, "unit_diff =", unit_diff)
-        manual_model = LineTracerManualEnvironmentModelDNN(latency, unit_diff, scaler, device)
-        manual_model.to(device)
-        manual_results.append(simulation_and_comparison(manual_model, line_tracer, testing_dl, device))
-manual_results = np.array(manual_results)
-manual_result = np.nanmean(manual_results, axis=0)
-
-# our model
-input_length = training_dataset_x.shape[1]
-input_feature = training_dataset_x.shape[2]
-hidden_dim = 256
-output_dim = 1
-initial_env_model = LineTracerEnvironmentModelDNN(input_dim=input_length*input_feature, hidden_dim=hidden_dim, output_dim=output_dim, device=device)
-initial_env_model.to(device)
-
-evaluation_results_for_each_algo = []
-for algo in algorithms:
-    print(algo)
-    env_model = copy.deepcopy(initial_env_model)
-    evaluation_results = environment_model_generation(env_model, line_tracer, device, algo, training_dataset_x, training_dataset_y, max_epoch, testing_dataset_x, testing_dataset_y)
-    evaluation_results_for_each_algo.append(evaluation_results)
-    print()
-
-    titles = ["Euclidian distance", "Dynamic Time Warping",
-
-              "Metric1 time diff",
-              "Metric1 count diff",
-              "Metric2 undershoot time diff",
-              "Metric2 undershoot count diff",
-              "Metric2 overshoot time diff",
-              "Metric2 overshoot count diff",
-              "Metric3 undershoot amplitude diff",
-              "Metric3 overshoot amplitude diff",
-              "Metric diff average",
-
-              "Metric1 time overlapped CI ratio",
-              "Metric1 count overlapped CI ratio",
-              "Metric2 undershoot time overlapped CI ratio",
-              "Metric2 undershoot count overlapped CI ratio",
-              "Metric2 overshoot time overlapped CI ratio",
-              "Metric2 overshoot count overlapped CI ratio",
-              "Metric3 undershoot amplitude overlapped CI ratio",
-              "Metric3 overshoot amplitude overlapped CI ratio",
-              "Metric overlapped CI ratio average"]
-
-    # save & visualize evaluation results
-    np_evaluation_results = np.array(evaluation_results_for_each_algo)
-    for vis_idx in range(20):
-        plt.figure(figsize=(10, 5))
-
-        plt.title(titles[vis_idx])
-        if vis_idx == 1:
-            min_dtws = batch_dynamic_time_warping(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], 1000)
-            min_dtws = min_dtws.mean()
-            plt.plot([min_dtws.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
-        elif vis_idx >= 11:
-            plt.plot([1.] * np_evaluation_results.shape[1], label="field_experiment")
-        else:
-            plt.plot([0.] * np_evaluation_results.shape[1], label="field_experiment")
-
-        # random baseline
-        plt.plot([random_result[vis_idx]] * np_evaluation_results.shape[1], label="random_model")
-
-        # manual baseline
-        plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
-
-        # shallow learning baseline
-        plt.plot([shallow_PR_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_PR_model")
-        plt.plot([shallow_RF_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_RF_model")
-
-        # algorithms
-        for i in range(len(evaluation_results_for_each_algo)):
-            plt.plot(np_evaluation_results[i, :, vis_idx], label=algorithms[i])
-
-        plt.legend()
-        plt.show()
-
-# simulation_log_datasets = simulation_testing(models, line_tracer, algo, testing_dataset_x, episode_length, num_simulation_repeat, device)
-#
-# ed_similarity, dtw_similarity = log_comparison(simulation_log_datasets, testing_dataset_y)
-#
-# plt.figure(figsize=(10, 5))
-# plt.plot(np.array(ed_similarity), label="ed")
-# plt.plot(np.array(dtw_similarity), label="dtw")
-# plt.legend()
-# plt.show()
-#
-#
-# property_metric_evaluation_result_sim = verification_property_metric_evaluation(simulation_log_datasets)
-# property_metric_evaluation_result_real = verification_property_metric_evaluation(testing_dataset_y)
-#
-# verification_similarity = verification_result_comparison(property_metric_evaluation_result_sim, property_metric_evaluation_result_real)
-#
+        rf_regressor = RandomForestRegressor()
+        rf_regressor.fit(flatted_training_x, np_training_y)
+        shallow_RF_model = LineTracerShallowRFEnvironmentModel(rf_regressor, device)
+        shallow_RF_result = simulation_and_comparison(shallow_RF_model, line_tracer, testing_dl, device)
 
 
+        # random model
+        print("random model")
+        random_model = LineTracerRandomEnvironmentModelDNN(device)
+        random_model.to(device)
+        random_result = simulation_and_comparison(random_model, line_tracer, testing_dl, device)
+
+        #manual model
+        print("manual model")
+        manual_model_latency_list = list(range(1, state_length + 1, 2))
+        manual_model_unit_diff_list = list(range(1, 16, 2))
+        manual_results = []
+        for latency in manual_model_latency_list:
+            for unit_diff in manual_model_unit_diff_list:
+                print("manual model, latency =", latency, "unit_diff =", unit_diff)
+                manual_model = LineTracerManualEnvironmentModelDNN(latency, unit_diff, scaler, device)
+                manual_model.to(device)
+                manual_results.append(simulation_and_comparison(manual_model, line_tracer, testing_dl, device))
+        manual_results = np.array(manual_results)
+        manual_result = np.nanmean(manual_results, axis=0)
+
+        # our model
+        input_length = training_dataset_x.shape[1]
+        input_feature = training_dataset_x.shape[2]
+        hidden_dim = 256
+        output_dim = 1
+        initial_env_model = LineTracerEnvironmentModelDNN(input_dim=input_length*input_feature, hidden_dim=hidden_dim, output_dim=output_dim, device=device)
+        initial_env_model.to(device)
+
+        evaluation_results_for_each_algo = []
+        for algo in algorithms:
+            print(algo)
+            env_model = copy.deepcopy(initial_env_model)
+            evaluation_results = environment_model_generation(env_model, line_tracer, device, algo, training_dataset_x, training_dataset_y, max_epoch, testing_dataset_x, testing_dataset_y)
+            evaluation_results_for_each_algo.append(evaluation_results)
+            print()
+
+            # titles = ["Euclidian distance", "Dynamic Time Warping",
+            #       "Metric1 time diff",
+            #       "Metric1 count diff",
+            #       "Metric2 undershoot time diff",
+            #       "Metric2 undershoot count diff",
+            #       "Metric2 overshoot time diff",
+            #       "Metric2 overshoot count diff",
+            #       "Metric3 undershoot amplitude diff",
+            #       "Metric3 overshoot amplitude diff",
+            #       "Metric diff average",
+            #
+            #       "Metric1 time overlapped CI ratio",
+            #       "Metric1 count overlapped CI ratio",
+            #       "Metric2 undershoot time overlapped CI ratio",
+            #       "Metric2 undershoot count overlapped CI ratio",
+            #       "Metric2 overshoot time overlapped CI ratio",
+            #       "Metric2 overshoot count overlapped CI ratio",
+            #       "Metric3 undershoot amplitude overlapped CI ratio",
+            #       "Metric3 overshoot amplitude overlapped CI ratio",
+            #       "Metric overlapped CI ratio average"]
+            #
+            # #save & visualize evaluation results
+            # np_evaluation_results = np.array(evaluation_results_for_each_algo)
+            # for vis_idx in range(20):
+            #     plt.figure(figsize=(10, 5))
+            #
+            #     plt.title(titles[vis_idx])
+            #     if vis_idx == 1:
+            #         min_dtws = batch_dynamic_time_warping(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], 1000)
+            #         min_dtws = min_dtws.mean()
+            #         plt.plot([min_dtws.cpu().item()] * np_evaluation_results.shape[1], label="field_experiment")
+            #     elif vis_idx >= 11:
+            #         plt.plot([1.] * np_evaluation_results.shape[1], label="field_experiment")
+            #     else:
+            #         plt.plot([0.] * np_evaluation_results.shape[1], label="field_experiment")
+            #
+            #     # random baseline
+            #     plt.plot([random_result[vis_idx]] * np_evaluation_results.shape[1], label="random_model")
+            #
+            #     # manual baseline
+            #     plt.plot([manual_result[vis_idx]] * np_evaluation_results.shape[1], label="manual_model")
+            #
+            #     # shallow learning baseline
+            #     plt.plot([shallow_PR_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_PR_model")
+            #     plt.plot([shallow_RF_result[vis_idx]] * np_evaluation_results.shape[1], label="shallow_RF_model")
+            #
+            #     # algorithms
+            #     for i in range(len(evaluation_results_for_each_algo)):
+            #         plt.plot(np_evaluation_results[i, :, vis_idx], label=algorithms[i])
+            #
+            #     plt.legend()
+            #     plt.show()
+
+        field_dtw_mean = batch_dynamic_time_warping(testing_dataset_y[:, :, [0]], testing_dataset_y[:, :, [0]], 1000).mean()
+        field_dtw_mean = field_dtw_mean.cpu().item()
+        field_experiment_result = np.array([[0, field_dtw_mean] + ([0]*18)])
+        random_result = np.array([random_result])
+        manual_result = np.array([manual_result])
+        shallow_PR_result = np.array([shallow_PR_result])
+        shallow_RF_result = np.array([shallow_RF_result])
+
+        output_nparray = np.concatenate((field_experiment_result, random_result, manual_result, shallow_PR_result, shallow_RF_result), axis=0)
+
+        np_evaluation_results = np.array(evaluation_results_for_each_algo)
+        np_evaluation_results = np.reshape(np_evaluation_results, (np_evaluation_results.shape[0] * np_evaluation_results.shape[1], np_evaluation_results.shape[2]))
+
+        output_nparray = np.concatenate((output_nparray, np_evaluation_results), axis=0)
+        np.savetxt("output/data/episode_"+str(num_episode)+"_trial_"+str(trial)+".csv", output_nparray, delimiter=",")
+
+        print()
 
