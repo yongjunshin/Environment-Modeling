@@ -2,6 +2,7 @@ import math
 
 import torch
 import numpy as np
+from torch.utils.data import DataLoader, TensorDataset
 
 from src.soft_dtw_cuda import SoftDTW
 import matplotlib.pyplot as plt
@@ -11,6 +12,8 @@ def simulate_deterministic(env_model, sut, sim_length, initial_state_batch, devi
     sim_result = torch.zeros((initial_state_batch.shape[0], sim_length, initial_state_batch.shape[2]),
                              device=device)
     sim_x = initial_state_batch
+    line_tracer_idx, _ = torch.max(torch.abs(sim_x[:, :, [1]]), dim=1)
+    line_tracer_idx = line_tracer_idx.cpu().numpy()
 
     env_model.eval()
     for sim_idx in range(sim_length):
@@ -18,7 +21,7 @@ def simulate_deterministic(env_model, sut, sim_length, initial_state_batch, devi
         action = env_model(sim_x).detach()
 
         # state transition
-        sys_operations = sut.act_sequential(action.cpu().numpy())
+        sys_operations = sut.act_sequential(action.cpu().numpy(), line_tracer_idx)
         sys_operations = torch.tensor(sys_operations).to(device=device).type(torch.float32)
         next_x = torch.cat((action, sys_operations), dim=1)
         next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
@@ -763,7 +766,17 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
                                       metric3_undershoot_overlapped_ci.item() +
                                       metric3_overshoot_overlapped_ci.item()) / 8
 
-    report = [ed_mean.item(), dtw_mean.item(),
+    real_eval_report = [torch.mean(real_time_on_line_border).item(), torch.mean(real_count_on_line_border).item(),
+                   torch.mean(real_time_undershoot).item(), torch.mean(real_time_overshoot).item(),
+                   torch.mean(real_count_undershoot).item(), torch.mean(real_count_overshoot).item(),
+                   torch.mean(real_amplitude_undershoot).item(), torch.mean(real_amplitude_overshoot).item()]
+
+    model_eval_report = [torch.mean(model_time_on_line_border).item(), torch.mean(model_count_on_line_border).item(),
+                   torch.mean(model_time_undershoot).item(), torch.mean(model_time_overshoot).item(),
+                   torch.mean(model_count_undershoot).item(), torch.mean(model_count_overshoot).item(),
+                   torch.mean(model_amplitude_undershoot).item(), torch.mean(model_amplitude_overshoot).item()]
+
+    comp_report = [ed_mean.item(), dtw_mean.item(),
 
               metric1_time_diff.item(),
               metric1_count_diff.item(),
@@ -773,20 +786,32 @@ def simulation_and_comparison(model, sut, testing_dataloader, device):
               metric2_overshoot_count_diff.item(),
               metric3_undershoot_amplitude_diff.item(),
               metric3_overshoot_amplitude_diff.item(),
-              metric_diff_average,
+              metric_diff_average]
 
-              metric1_time_overlapped_ci.item(),
-              metric1_count_overlapped_ci.item(),
-              metric2_undershoot_time_overlapped_ci.item(),
-              metric2_undershoot_count_overlapped_ci.item(),
-              metric2_overshoot_time_overlapped_ci.item(),
-              metric2_overshoot_count_overlapped_ci.item(),
-              metric3_undershoot_overlapped_ci.item(),
-              metric3_overshoot_overlapped_ci.item(),
-              metric_overapped_ratio_average]
+              # metric1_time_overlapped_ci.item(),
+              # metric1_count_overlapped_ci.item(),
+              # metric2_undershoot_time_overlapped_ci.item(),
+              # metric2_undershoot_count_overlapped_ci.item(),
+              # metric2_overshoot_time_overlapped_ci.item(),
+              # metric2_overshoot_count_overlapped_ci.item(),
+              # metric3_undershoot_overlapped_ci.item(),
+              # metric3_overshoot_overlapped_ci.item(),
+              # metric_overapped_ratio_average]
 
-    print(report)
-    return report
+    #print(real_eval_report)
+    print(comp_report)
+    return real_eval_report, model_eval_report, comp_report
+
+
+
+def simulation_and_comparison_with_multiple_testing_dataset(model, sut, testing_dataset_x_list, testing_dataset_y_list, device):
+    reports = []
+    for i in range(len(testing_dataset_x_list)):
+        testing_dl = DataLoader(dataset=TensorDataset(testing_dataset_x_list[i], testing_dataset_y_list[i]), batch_size=516, shuffle=False)
+        reports.append(simulation_and_comparison(model, sut, testing_dl, device))
+    return reports
+
+
 
 
 def overlapped_confidence_interval_ratio(samples1, samples2):

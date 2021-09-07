@@ -35,17 +35,17 @@ class BCGailPPOTrainer:
         self.lmbda = 0.95
         self.eps_clip = 0.2
 
-    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: torch.tensor, yt: torch.tensor, episode_length: int) -> list:
+    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: list, yt: list, episode_length: int) -> list:
         self.optimiser_pi = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
 
         x_training_datapoints, y_training_datapoints = episode_to_datapoints(x, y)
         dl = DataLoader(dataset=TensorDataset(x_training_datapoints, y_training_datapoints), batch_size=512, shuffle=True)
-        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
+        #testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
 
         # initial model
-        evaluation_results.append(simulation_and_comparison(model, self.sut, testing_dl, self.device))
+        evaluation_results.append(simulation_and_comparison_with_multiple_testing_dataset(model, self.sut, xt, yt, self.device))
 
         for _ in tqdm(range(epochs), desc="Training"):
             ed_sum = torch.zeros((), device=self.device)
@@ -57,6 +57,10 @@ class BCGailPPOTrainer:
                 pi_states = []
                 pi_actions = []
                 sim_x = x_batch
+
+                line_tracer_idx, _ = torch.max(torch.abs(sim_x[:, :, [1]]), dim=1)
+                line_tracer_idx = line_tracer_idx.cpu().numpy()
+
                 for sim_idx in range(episode_length):
                     pi_states.append(sim_x)
                     # action choice
@@ -65,7 +69,7 @@ class BCGailPPOTrainer:
                     pi_actions.append(action)
 
                     # state transition
-                    sys_operations = self.sut.act_sequential(action.cpu().numpy())
+                    sys_operations = self.sut.act_sequential(action.cpu().numpy(), line_tracer_idx)
                     sys_operations = torch.tensor(sys_operations).to(device=self.device).type(torch.float32)
                     next_x = torch.cat((action, sys_operations), dim=1)
                     next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
@@ -113,7 +117,7 @@ class BCGailPPOTrainer:
                     rewards.append(reward)
 
                     # state transition
-                    sys_operations = self.sut.act_sequential(action.cpu().numpy())
+                    sys_operations = self.sut.act_sequential(action.cpu().numpy(), line_tracer_idx)
                     sys_operations = torch.tensor(sys_operations).to(device=self.device).type(torch.float32)
                     next_x = torch.cat((action, sys_operations), dim=1)
                     next_x = torch.reshape(next_x, (next_x.shape[0], 1, next_x.shape[1]))
@@ -131,7 +135,7 @@ class BCGailPPOTrainer:
                 #     plt.legend()
                 #     plt.show()
 
-            evaluation_results.append(simulation_and_comparison(model, self.sut, testing_dl, self.device))
+            evaluation_results.append(simulation_and_comparison_with_multiple_testing_dataset(model, self.sut, xt, yt, self.device))
         return evaluation_results
 
     def train_discriminator(self, exp_state, exp_action, pi_states, pi_actions):

@@ -14,17 +14,17 @@ class BehaviorCloning1TickTrainer:
         self.loss_fn = torch.nn.MSELoss()
         self.lr = lr
 
-    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: torch.tensor, yt: torch.tensor, episode_length: int) -> list:
+    def train(self, model: torch.nn.Module, epochs: int, x: torch.tensor, y: torch.tensor, xt: list, yt: list, episode_length: int) -> list:
         optimiser = torch.optim.Adam(model.parameters(), lr=self.lr)
 
         evaluation_results = []
 
         x_training_datapoints, y_training_datapoints = episode_to_datapoints(x, y)
         dl = DataLoader(dataset=TensorDataset(x_training_datapoints, y_training_datapoints), batch_size=512, shuffle=True)
-        testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
+        #testing_dl = DataLoader(dataset=TensorDataset(xt, yt), batch_size=512, shuffle=True)
 
         # initial model evaluation
-        evaluation_results.append(simulation_and_comparison(model, self.sut, testing_dl, self.device))
+        evaluation_results.append(simulation_and_comparison_with_multiple_testing_dataset(model, self.sut, xt, yt, self.device))
 
         for _ in tqdm(range(epochs), desc="Training"):
             for _, (x_batch, y_batch) in enumerate(dl):
@@ -37,7 +37,7 @@ class BehaviorCloning1TickTrainer:
                 loss.backward()
                 optimiser.step()
 
-            evaluation_results.append(simulation_and_comparison(model, self.sut, testing_dl, self.device))
+            evaluation_results.append(simulation_and_comparison_with_multiple_testing_dataset(model, self.sut, xt, yt, self.device))
 
         return evaluation_results
 

@@ -1,5 +1,5 @@
 import numpy as np
-
+import torch
 
 # Virtual Line Tracer version 1
 class LineTracerVer1:
@@ -35,7 +35,7 @@ class LineTracerVer1:
         # print('normalized turning:', normalized_turning_ratio)
         return normalized_turning_ratio
 
-    def act_sequential(self, colors: np.ndarray) -> np.ndarray:
+    def act_sequential(self, colors: np.array, line_tracer_idx: np.array) -> np.ndarray:
         """
         System operation
 
@@ -45,20 +45,29 @@ class LineTracerVer1:
         black = 5
         white = 75
         threshold = (black + white) / 2
-        turning_ratio = 30
 
-        concated_colors = np.concatenate((colors, np.zeros(colors.shape)), axis=1)
-        denormalized_colors = self.normalizer.inverse_transform(concated_colors)
-        denormalized_colors = denormalized_colors[:, 0]
+        # turning_ratio = 30
+        #
+        # concated_colors = np.concatenate((colors, np.zeros(colors.shape)), axis=1)
+        # denormalized_colors = self.normalizer.inverse_transform(concated_colors)
+        # denormalized_colors = denormalized_colors[:, 0]
+        #
+        # turning_ratios = np.zeros(len(denormalized_colors))
+        # turning_ratios[np.argwhere(denormalized_colors > threshold)] = turning_ratio
+        # turning_ratios[np.argwhere(denormalized_colors < threshold)] = -turning_ratio
+        # turning_ratios[np.argwhere(denormalized_colors == threshold)] = 0
+        #
+        # turning_ratios = np.reshape(turning_ratios, (turning_ratios.shape[0], 1))
+        # concated_turning_ratios = np.concatenate((np.zeros(turning_ratios.shape), turning_ratios), axis=1)
+        # normalized_turning_ratio = self.normalizer.transform(concated_turning_ratios)[:, [1]]
 
-        turning_ratios = np.zeros(len(denormalized_colors))
-        turning_ratios[np.argwhere(denormalized_colors > threshold)] = turning_ratio
-        turning_ratios[np.argwhere(denormalized_colors < threshold)] = -turning_ratio
-        turning_ratios[np.argwhere(denormalized_colors == threshold)] = 0
+        normalized_threshold = self.normalizer.transform(np.array([[threshold, 0]]))[0, 0]
 
-        turning_ratios = np.reshape(turning_ratios, (turning_ratios.shape[0], 1))
-        concated_turning_ratios = np.concatenate((np.zeros(turning_ratios.shape), turning_ratios), axis=1)
-        normalized_turning_ratio = self.normalizer.transform(concated_turning_ratios)[:, [1]]
+        positive_check = np.where(colors > normalized_threshold, 1.0, 0.0)
+        negative_check = np.where(colors < normalized_threshold, 1.0, 0.0)
+
+        normalized_turning_ratio = positive_check * line_tracer_idx + negative_check * (-line_tracer_idx)
+
 
         return normalized_turning_ratio
 
