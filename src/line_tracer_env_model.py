@@ -40,6 +40,8 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         self.hidden_dim = hidden_dim
 
         self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc_middle1 = nn.Linear(hidden_dim, hidden_dim) #
+        # self.fc_middle2 = nn.Linear(hidden_dim, hidden_dim) #
         self.fc2 = nn.Linear(hidden_dim, output_dim)
 
         self.fc_std = nn.Linear(hidden_dim, output_dim)
@@ -55,6 +57,8 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
         out = torch.tanh(torch.nan_to_num(self.fc1(x)))
+        out = torch.tanh(torch.nan_to_num(self.fc_middle1(out))) #
+        # out = torch.tanh(torch.nan_to_num(self.fc_middle2(out)))  #
         out = torch.nan_to_num(self.fc2(out))
         out = torch.tanh(out)
         return out
@@ -67,6 +71,8 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
         out = torch.tanh(torch.nan_to_num(self.fc1(x)))
+        out = torch.tanh(torch.nan_to_num(self.fc_middle1(out)))  #
+        # out = torch.tanh(torch.nan_to_num(self.fc_middle2(out)))  #
 
         mu = torch.tanh(torch.nan_to_num(self.fc2(out)))
 
@@ -98,6 +104,8 @@ class LineTracerEnvironmentModelDNN(nn.Module):
         """
         x = torch.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
         out = torch.tanh(torch.nan_to_num(self.fc1(x)))
+        out = torch.tanh(torch.nan_to_num(self.fc_middle1(out)))  #
+        # out = torch.tanh(torch.nan_to_num(self.fc_middle2(out)))  #
         v = torch.nan_to_num(self.fc_v(out))
         v = torch.tanh(v)
         return v
